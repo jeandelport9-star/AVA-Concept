@@ -1,0 +1,15 @@
+{
+  "name": "AVA – Advanced Virtual Agent",
+  "short_name": "AVA",
+  "description": "Rentals without the agent fees – listings, payments, repairs and 360° inspections in one app.",
+  "start_url": "/#/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1f3a",
+  "theme_color": "#0b1f3a",
+  "icons": [
+    {"src": "img/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "img/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

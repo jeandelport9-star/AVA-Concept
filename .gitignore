@@ -1,0 +1,12 @@
+# local data: database, uploaded photos, documents – never commit
+data/
+*.db
+*.sqlite
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.log
+.DS_Store
+Thumbs.db
