@@ -9,7 +9,9 @@ import webbrowser
 
 import uvicorn
 
-PORT = int(os.environ.get("AVA_PORT", 8780))
+# Cloud hosts (Render, Railway, Fly, Docker…) hand the app a port in $PORT; on a PC it is 8780.
+PORT = int(os.environ.get("PORT") or os.environ.get("AVA_PORT") or 8780)
+CLOUD = bool(os.environ.get("PORT")) or bool(os.environ.get("AVA_NO_BROWSER"))
 
 
 def lan_ip():
@@ -47,6 +49,11 @@ def maybe_seed():
 
 
 if __name__ == "__main__":
+    if CLOUD:   # on a server: build the demo if needed, then serve – no browser, no LAN hints
+        maybe_seed()
+        print(f"  AVA is running on port {PORT}")
+        uvicorn.run("server.main:app", host="0.0.0.0", port=PORT, log_level="warning", proxy_headers=True, forwarded_allow_ips="*")
+        sys.exit(0)
     if port_busy():
         print(f"\n  AVA is already running on port {PORT}. Close that window first (or open http://localhost:{PORT}).")
         if not os.environ.get("AVA_NO_BROWSER"):

@@ -1,0 +1,16 @@
+# One-click hosting on Render (https://render.com): New → Blueprint → pick this repository.
+# Free plan: the app sleeps after 15 minutes without visitors and wakes on the next visit (about a minute).
+# The demo data is rebuilt every time it wakes, so every visitor starts from a clean demo.
+services:
+  - type: web
+    name: ava-demo
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    healthCheckPath: /api/stats/public
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: AVA_NO_BROWSER
+        value: "1"

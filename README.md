@@ -44,6 +44,21 @@ The sign-in page also has one-tap buttons for these accounts.
 
 The demo house **Jacaranda House** uses the real BLK360 G2 panoramas from Site Inspect's Troye House capture. Both its public 360° tour and its ingoing/outgoing inspection use them; the outgoing panoramas have simulated damage.
 
+## Put it online (a link anyone can open)
+
+**Render** (free, about 5 minutes, nothing to install):
+1. Sign in at https://render.com with your GitHub account.
+2. Click **New → Blueprint**, and give Render access to this repository.
+3. Choose the repository and click **Apply**. Render reads `render.yaml`, builds AVA, and gives you a link like `https://ava-demo.onrender.com`.
+
+**Free plan behaviour:**
+- The app sleeps after 15 minutes without visitors. The next visit wakes it in about a minute.
+- Each wake-up rebuilds the demo data, so everyone starts from a clean demo.
+
+To keep it always on and to keep real data, use a paid instance with a persistent disk mounted at `/var/data` and set `AVA_DATA=/var/data`.
+
+**Other hosts:** the `Dockerfile` runs AVA on any container host (Railway, Fly.io, Koyeb, Azure, a VPS).
+
 ## Search (Property24 filter set)
 
 **Location:** several suburbs, cities or provinces at once, shown as chips with type-ahead suggestions.
