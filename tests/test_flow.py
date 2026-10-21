@@ -18,6 +18,8 @@ from server import seed  # noqa: E402
 from server.main import app  # noqa: E402
 
 seed.run(reset=True)
+from server import db as _db0  # noqa: E402
+_db0.set_setting("module_maintenance", True)     # the maintenance flows below are tested with the module on; section 6 tests it off
 
 
 def client(email):
@@ -258,4 +260,23 @@ assert r["intent"] == "search", r
 ok(anon.post("/api/agent/handoff", json={"name": "Lead", "phone": "082", "property_id": target["id"]}))
 assert ok(pm.get("/api/agent/stats"))["handoffs"] >= 1
 print("✓ payouts + statement, bank CSV matching, autopilot, AVA Assist, escalation, Excel reports, permissions, settings")
+
+# ---- 6. maintenance switched off (it runs in Fixit for now) -------------------------------
+ok(admin.put("/api/settings", json={"module_maintenance": False, "fixit_url": "https://fixit.example.co.za"}))
+me = ok(t.get("/api/me"))
+assert me["features"] == {"maintenance": False, "fixit_url": "https://fixit.example.co.za"}, me["features"]
+assert ok(anon.get("/api/me"))["features"]["maintenance"] is False
+ok(t.post("/api/tickets", data={"title": "Tap leaking"}), 404)
+ok(plumber.get("/api/contractor/issues"), 404)
+ok(anon.get("/api/pros"), 404)
+ok(pm.get("/api/reports/maintenance.xlsx"), 404)
+ok(pm.get("/api/reports/rent-roll.xlsx"))                                       # the rest of AVA still works
+r = ok(t.post("/api/agent", json={"text": "my geyser burst and water is everywhere", "session": "off"}))
+assert r["intent"] == "repairs_fixit" and "Fixit" in r["reply"] and any(a.get("href") == "https://fixit.example.co.za" for a in r["actions"]), r
+r = ok(t.post("/api/agent", json={"text": "can I cancel my fixed-term lease?", "session": "off"}))
+assert r["intent"] != "repairs_fixit", r
+d = ok(pm.get("/api/dashboard"))
+assert not any(x["kind"] in ("maintenance", "approval") for x in d["tasks"]), "repair to-dos hidden"
+ok(admin.post("/api/autopilot/run"))
+print("✓ maintenance module off: repair & marketplace API closed, agent points to Fixit, inbox has no repair to-dos, rest of AVA works")
 print("ALL GOOD")

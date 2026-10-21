@@ -595,13 +595,17 @@ def finalise_inspection(iid, u):
     close_tasks(f"ingoing:{i['lease_id']}") if i["type"] == "ingoing" else None
     close_tasks(f"outgoing:{i['lease_id']}") if i["type"] == "outgoing" else None
     created = 0
-    for r in i["rooms"]:
-        for it in r["items"]:
-            if it["charge_to"] in ("landlord", "tenant") and it["charge"] and not it["ticket_id"]:
-                tid = create_ticket(u, p["id"], f"{r['name']}: {it['name']}", it["notes"] or "Found at inspection", r["name"],
-                                    it["photos"], "inspection", None, it["id"], it["charge_to"])
-                db.upd("insp_items", it["id"], ticket_id=tid)
-                created += 1
+    found = [(r, it) for r in i["rooms"] for it in r["items"] if it["charge_to"] in ("landlord", "tenant") and it["charge"] and not it["ticket_id"]]
+    if found and not fees.on("maintenance"):   # repairs run in Fixit: hand the list to the PM/owner instead of raising requests here
+        task(p["pm_id"], p["id"], "inspection", f"{len(found)} repair{'s' if len(found) != 1 else ''} found at the {i['type']} inspection – {p['title']}",
+             "; ".join(f"{r['name']}: {it['name']} (R{it['charge']:,.0f}, {it['charge_to']})" for r, it in found)[:400] + ". The owner decides which to do – log them in Fixit.",
+             f"#/app/inspection/{iid}", 2, dedupe=f"repairs:{iid}")
+        found = []
+    for r, it in found:
+        tid = create_ticket(u, p["id"], f"{r['name']}: {it['name']}", it["notes"] or "Found at inspection", r["name"],
+                            it["photos"], "inspection", None, it["id"], it["charge_to"])
+        db.upd("insp_items", it["id"], ticket_id=tid)
+        created += 1
     if i["type"] == "outgoing" and i["lease_id"]:
         dep = deposit_reconciliation(inspection_full(iid))
         task(p["pm_id"], p["id"], "deposit", f"Refund deposit – {p['title']}", f"R{dep['refund']:,.0f} by {dep['refund_by']}",

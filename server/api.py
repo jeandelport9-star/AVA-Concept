@@ -121,12 +121,21 @@ def logout(request: Request, response: Response):
     return {"ok": True}
 
 
+def MAINT_TASKS():
+    """While maintenance runs in Fixit, repair-related to-dos stay out of every inbox."""
+    return "" if fees.on("maintenance") else " AND t.kind NOT IN ('maintenance','approval')"
+
+
+def features():
+    return {"maintenance": fees.on("maintenance"), "fixit_url": fees.S("fixit_url") or ""}
+
+
 @r.get("/me")
 def me(u=Depends(optional_user)):
     if not u:
-        return {"user": None}
+        return {"user": None, "features": features()}
     unread = db.val("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read=0", u["id"])
-    return {"user": public_user(u), "unread": unread}
+    return {"user": public_user(u), "unread": unread, "features": features()}
 
 
 @r.put("/me")
@@ -426,7 +435,7 @@ def dashboard(u=Depends(user)):
         out["kpis"] = kpis(ids)
     if u["role"] in ("pm", "admin"):
         pmw = "" if u["role"] == "admin" else f" AND pm_id={u['id']}"
-        out["tasks"] = db.q(f"SELECT t.*, p.title ptitle FROM tasks t LEFT JOIN properties p ON p.id=t.property_id WHERE t.status='open' AND t.kind NOT LIKE '\\_%' ESCAPE '\\' {pmw.replace('pm_id', 't.pm_id')} ORDER BY t.priority, COALESCE(t.due,'9999'), t.id DESC LIMIT 60")
+        out["tasks"] = db.q(f"SELECT t.*, p.title ptitle FROM tasks t LEFT JOIN properties p ON p.id=t.property_id WHERE t.status='open' AND t.kind NOT LIKE '\\_%' ESCAPE '\\' {MAINT_TASKS()} {pmw.replace('pm_id', 't.pm_id')} ORDER BY t.priority, COALESCE(t.due,'9999'), t.id DESC LIMIT 60")
         out["activity"] = db.q(f"SELECT * FROM activity WHERE 1=1 {pmw} ORDER BY id DESC LIMIT 25")
         out["automated_week"] = db.val(f"SELECT COUNT(*) FROM activity WHERE actor='AVA Autopilot' AND created_at>=? {pmw}", (date.today() - timedelta(days=7)).isoformat())
         out["anomalies"] = ai.ledger_anomalies(ids)
@@ -447,7 +456,7 @@ def dashboard(u=Depends(user)):
     if u["role"] == "landlord":
         out["properties"] = properties(u)
         out["savings"] = fees.landlord_savings(u["id"])
-        out["approvals"] = db.q(f"SELECT t.*, p.title ptitle FROM tickets t JOIN properties p ON p.id=t.property_id WHERE t.status='awaiting_approval' AND t.property_id IN {il}")
+        out["approvals"] = db.q(f"SELECT t.*, p.title ptitle FROM tickets t JOIN properties p ON p.id=t.property_id WHERE t.status='awaiting_approval' AND t.property_id IN {il}") if fees.on("maintenance") else []
         out["statements"] = db.q(f"SELECT property_id, period, -SUM(amount) payout FROM ledger WHERE account='owner' AND kind='payout' AND property_id IN {il} GROUP BY property_id, period ORDER BY period DESC LIMIT 12")
         out["income_12m"] = db.q(f"SELECT period, SUM(CASE WHEN kind='rent_received' THEN amount ELSE 0 END) income, -SUM(CASE WHEN amount<0 AND kind!='payout' THEN amount ELSE 0 END) costs FROM ledger WHERE account='owner' AND property_id IN {il} GROUP BY period ORDER BY period DESC LIMIT 12")
     if u["role"] == "tenant":
@@ -487,7 +496,7 @@ def autopilot_run(u=Depends(role(*STAFF))):
 @r.get("/tasks")
 def tasks(u=Depends(role(*STAFF)), status: str = "open"):
     w = "" if u["role"] == "admin" else f" AND t.pm_id={u['id']}"
-    return db.q(f"SELECT t.*, p.title ptitle FROM tasks t LEFT JOIN properties p ON p.id=t.property_id WHERE t.status=? AND t.kind NOT LIKE '\\_%' ESCAPE '\\' {w} ORDER BY t.priority, t.id DESC LIMIT 200", status)
+    return db.q(f"SELECT t.*, p.title ptitle FROM tasks t LEFT JOIN properties p ON p.id=t.property_id WHERE t.status=? AND t.kind NOT LIKE '\\_%' ESCAPE '\\' {MAINT_TASKS()} {w} ORDER BY t.priority, t.id DESC LIMIT 200", status)
 
 
 @r.post("/tasks/{tid}/{action}")

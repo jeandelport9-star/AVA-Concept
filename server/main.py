@@ -13,6 +13,20 @@ app = FastAPI(title="AVA", docs_url="/api/docs")
 app.include_router(r)
 
 
+MAINTENANCE_API = ("/api/tickets", "/api/pros", "/api/contractor/", "/api/reports/maintenance")
+
+
+@app.middleware("http")
+async def maintenance_module(request, call_next):
+    """Repairs and the contractor marketplace are switched off while maintenance runs in Fixit (setting module_maintenance)."""
+    if request.url.path.startswith(MAINTENANCE_API):
+        from . import fees
+        if not fees.on("maintenance"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Repairs and maintenance are handled in Fixit for now."}, status_code=404)
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def no_stale_app(request, call_next):
     """Browsers must re-check the app's own files on every load (a quick 304 when unchanged), so an update shows up

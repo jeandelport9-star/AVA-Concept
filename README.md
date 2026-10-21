@@ -9,6 +9,13 @@ It combines three things:
 
 It's built from the AVA documents: features scope, pricing sheet (Aug 2024), maintenance module quotation, Portfolio Director brief and "Who is AVA".
 
+> **Maintenance is switched off for now.** Repairs, contractor quotes, maintenance companies and the job map run in **Fixit**, a separate app. The code stays in AVA behind one setting: **Admin → Settings & fees → Modules → Maintenance in AVA**. With it off:
+> - menus, pages and API for repairs are hidden;
+> - the virtual agent points tenants and owners to Fixit (set the *Fixit link* in the same place) and still gives emergency safety steps;
+> - repairs found at an inspection go to the portfolio manager as one to-do, so the owner can decide which to do.
+>
+> Construction snag lists stay in AVA – they belong to inspections.
+
 ## Start
 
 Windows: double-click **`start.bat`**. The first run does two things:
@@ -36,28 +43,13 @@ The sign-in page also has one-tap buttons for these accounts.
 | Who | Email | Try |
 |---|---|---|
 | Portfolio manager | thandi@ava.co.za | Command centre, Money → Owner payouts, Maintenance board, Inspections, Snag lists, AI & virtual agent |
-| Landlord | emgee@example.co.za · sarah@example.co.za | Sarah: choose one of 3 quotes for a damp repair. Emgee: the Dullstroom farm has no company within 10 km – tap *Extend range* |
+| Landlord | emgee@example.co.za · sarah@example.co.za | Statements, savings vs an agent, inspections. *(With maintenance on: Sarah chooses one of 3 quotes; Emgee extends the range for the Dullstroom farm.)* |
 | Tenant (moving out) | lerato@example.com | Pay, outgoing inspection, deposit, virtual agent |
 | Tenant | johan@example.com | Report a problem and watch the AI triage |
-| Maintenance company | plumbfix@example.co.za | *Browse jobs* map – apply to quote on nearby repairs; R250/month listing, "Job done" photo button, "Report an issue" with a voice note, ratings and replies |
+| Contractor | plumbfix@example.co.za | Snags to mark fixed with an 'after' photo. *(With maintenance on:* *Browse jobs* map – apply to quote on nearby repairs; R250/month listing, "Job done" photo button, "Report an issue" with a voice note, ratings and replies*)* |
 | AVA admin | admin@ava.co.za | Users, review moderation, fees and settings, PayFast, AI key |
 
 The demo house **Jacaranda House** uses the real BLK360 G2 panoramas from Site Inspect's Troye House capture. Both its public 360° tour and its ingoing/outgoing inspection use them; the outgoing panoramas have simulated damage.
-
-## Put it online (a link anyone can open)
-
-**Render** (free, about 5 minutes, nothing to install):
-1. Sign in at https://render.com with your GitHub account.
-2. Click **New → Blueprint**, and give Render access to this repository.
-3. Choose the repository and click **Apply**. Render reads `render.yaml`, builds AVA, and gives you a link like `https://ava-demo.onrender.com`.
-
-**Free plan behaviour:**
-- The app sleeps after 15 minutes without visitors. The next visit wakes it in about a minute.
-- Each wake-up rebuilds the demo data, so everyone starts from a clean demo.
-
-To keep it always on and to keep real data, use a paid instance with a persistent disk mounted at `/var/data` and set `AVA_DATA=/var/data`.
-
-**Other hosts:** the `Dockerfile` runs AVA on any container host (Railway, Fly.io, Koyeb, Azure, a VPS).
 
 ## Search (Property24 filter set)
 
@@ -103,7 +95,7 @@ The demo has 50 listings across all nine provinces. Every rent is between **R15 
 | **Payouts** | Owner statement per property: rent in, AVA tier fee, PM commission, insurance, repairs → payout | Release button |
 | **Compliance** | "No steps missed" checklist on every lease; AVA Learn explains RHA / CPA / PIE / POPIA in plain language | – |
 
-## Maintenance marketplace
+## Maintenance marketplace (module – off while maintenance runs in Fixit)
 
 - **Listing:** maintenance companies list themselves for **R250/month** at *#/pros/join*, with a 30-day free trial. They pin their base on a map, and AVA vets them (CIPC, ID, references) before they get work. A lapsed listing stops receiving requests, and a reminder goes out 5 days before expiry.
 - **3 quotes within 10 km:** every repair request goes to the 3 best-matched, paid-up companies within 10 km of the property, ranked on rating, distance and workload. Emergencies under the auto-approve limit are dispatched to the best company straight away.

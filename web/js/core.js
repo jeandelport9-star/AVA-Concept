@@ -1,5 +1,7 @@
 // AVA core: API client, state, router, UI helpers. Plain ES modules, no build step.
-export const state = { user: null, unread: 0 };
+export const state = { user: null, unread: 0, features: { maintenance: false, fixit_url: '' } };
+// optional modules (Admin → Settings & fees): maintenance runs in Fixit while it is switched off
+export const feat = name => !!(state.features || {})[name];
 
 // ------------------------------------------------------------------ api
 async function call(method, url, data) {
@@ -156,6 +158,8 @@ export const onLeave = fn => cleanup.push(fn);
 export async function render() {
   cleanup.forEach(f => { try { f(); } catch (_) { } }); cleanup = [];
   const h = location.hash.slice(1) || '/';
+  if (!feat('maintenance') && /^\/(app\/(maintenance|ticket|jobs)(\/|$|\?)|pros(\/|$|\?)|pro\/)/.test(h)) return go(state.user ? '#/app' : '#/');   // maintenance is in Fixit for now
+  if (!feat('maintenance') && state.user?.role === 'contractor' && /^\/app(\/profile)?(\?|$)/.test(h)) return go('#/app/snags');
   for (const r of routes) {
     const m = h.match(r.re);
     if (!m) continue;
@@ -170,5 +174,5 @@ export async function render() {
 window.addEventListener('hashchange', render);
 
 export async function refreshMe() {
-  const r = await api.get('/api/me'); state.user = r.user; state.unread = r.unread || 0; return r.user;
+  const r = await api.get('/api/me'); state.user = r.user; state.unread = r.unread || 0; if (r.features) state.features = r.features; return r.user;
 }

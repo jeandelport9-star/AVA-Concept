@@ -1,5 +1,5 @@
 // Workspace pages: command centre, portfolio, leasing, leases, money, contractors, inbox, reports, admin.
-import { $, $$, act, ago, api, cchip, confirmBox, esc, fdate, fdt, formData, formObj, fslot, go, icon, initials, INSP, LOGO, modal, period, pickFiles, pill, plural, qs, R, R2, route, signModal, ST, stars, state, toast, today, upload } from './core.js';
+import { $, $$, act, ago, api, cchip, confirmBox, esc, feat, fdate, fdt, formData, formObj, fslot, go, icon, initials, INSP, LOGO, modal, period, pickFiles, pill, plural, qs, R, R2, route, signModal, ST, stars, state, toast, today, upload } from './core.js';
 import { page, moreMenu } from './shell.js';
 import { openTour } from './public.js';
 
@@ -25,7 +25,7 @@ function kpiTiles(k) {
     <a class="kpi" href="#/app/money"><span>Rent roll</span><b>${R(k.rent_roll)}</b><small>${k.let} active leases</small></a>
     <a class="kpi ${k.collection_rate < 90 ? 'alert' : 'good'}" href="#/app/money"><span>Collected this month</span><b>${k.collection_rate}%</b><small>${R(k.collected)} of ${R(k.charged)}</small></a>
     <a class="kpi ${k.arrears ? 'alert' : ''}" href="#/app/money?tab=arrears"><span>Arrears</span><b>${R(k.arrears)}</b><small>${plural(k.in_arrears, 'tenant')}</small></a>
-    <a class="kpi ${k.urgent_tickets ? 'alert' : ''}" href="#/app/maintenance"><span>Open repairs</span><b>${k.open_tickets}</b><small>${k.urgent_tickets} urgent</small></a>
+    ${feat('maintenance') ? `<a class="kpi ${k.urgent_tickets ? 'alert' : ''}" href="#/app/maintenance"><span>Open repairs</span><b>${k.open_tickets}</b><small>${k.urgent_tickets} urgent</small></a>` : ''}
     <a class="kpi" href="#/app/money?tab=deposits"><span>Deposits in trust</span><b>${R(k.deposits_held)}</b><small>interest-bearing</small></a>
   </div>`;
 }
@@ -38,7 +38,7 @@ async function commandCentre() {
   d.tasks.forEach(t => (groups[t.kind] ||= []).push(t));
   pg.innerHTML = `
     <div class="autopilot"><div>${icon('bolt', 'ico')}</div><div style="flex:1;min-width:220px"><b>${d.automated_week}</b> things handled by AVA Autopilot this week</div>
-      <div class="small" style="opacity:.85">Rent matched, reminders sent, quotes requested, inspections booked.<br>Last run ${ago(d.last_tick)}. You only see the exceptions below.</div></div>
+      <div class="small" style="opacity:.85">Rent matched, reminders sent, ${feat('maintenance') ? 'quotes requested, ' : ''}inspections booked.<br>Last run ${ago(d.last_tick)}. You only see the exceptions below.</div></div>
     ${kpiTiles(k)}
     <div class="grid2" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start">
       <div class="card flush inbox"><div class="card-head"><h3>Needs you <span class="pill cta">${d.tasks.length}</span></h3><div class="seg" id="tf"><button aria-pressed="true" data-k="">All</button>${Object.keys(groups).map(g => `<button data-k="${g}">${g} ${groups[g].length}</button>`).join('')}</div></div>
@@ -86,7 +86,7 @@ async function landlordHome() {
   pg.innerHTML = `${d.approvals.length ? `<div class="card stack tight" style="border-color:var(--warn)"><h3>${icon('alert')} Waiting for your approval</h3>${d.approvals.map(t => `<a class="li" href="#/app/ticket/${t.id}" style="padding:6px 0"><span class="grow"><b>${esc(t.title)}</b> <span class="muted small">${esc(t.ptitle)}</span></span><span class="btn sm primary">Review quotes</span></a>`).join('')}</div>` : ''}
     <div class="kpis"><div class="kpi"><span>Your homes</span><b>${d.kpis.properties}</b><small>${d.kpis.occupancy}% occupied</small></div><div class="kpi"><span>Monthly rent roll</span><b>${R(d.kpis.rent_roll)}</b></div>
       <div class="kpi"><span>Collected this month</span><b>${R(d.kpis.collected)}</b><small>${d.kpis.collection_rate}%</small></div><div class="kpi ${d.kpis.arrears ? 'alert' : ''}"><span>Arrears</span><b>${R(d.kpis.arrears)}</b></div>
-      <div class="kpi"><span>Open repairs</span><b>${d.kpis.open_tickets}</b></div><div class="kpi"><span>Deposits in trust</span><b>${R(d.kpis.deposits_held)}</b></div></div>
+      ${feat('maintenance') ? `<div class="kpi"><span>Open repairs</span><b>${d.kpis.open_tickets}</b></div>` : ''}<div class="kpi"><span>Deposits in trust</span><b>${R(d.kpis.deposits_held)}</b></div></div>
     ${savingsCard(d.savings)}
     <div class="card"><h3>Income and costs</h3>${barChart(inc.map(x => ({ label: period(x.period), a: x.income, b: x.costs })), 'Rent received', 'Fees & repairs')}</div>
     <div class="card flush"><div class="card-head"><h3>Your properties</h3></div>${propTable(d.properties)}</div>
@@ -118,9 +118,10 @@ async function tenantHome() {
       <span class="small" style="opacity:.8">${owe ? 'Amount due' : 'You are up to date'}</span><b style="font:600 34px var(--f-head)">${R2(Math.max(d.balance, 0))}</b>
       <span class="small" style="opacity:.85">Next rent ${R(l.rent)} due ${fdate(d.next_due)} · reference <span class="mono">${d.ref}</span></span>
       <div class="row"><a class="btn ${owe ? 'cta' : ''}" href="#/app/pay">${icon('money')}Pay now</a><a class="btn ghost" style="color:inherit" href="#/app/pay?tab=statement">Statement</a></div></div>
-    <div class="grid2"><a class="card row" href="#/app/maintenance/new" style="text-decoration:none">${icon('tool')}<div class="grow"><b>Report a problem</b><div class="small muted">Photos help. Emergencies are dispatched immediately.</div></div></a>
-      <button class="card row" style="text-align:left;cursor:pointer" onclick="document.getElementById('fab').click()">${icon('spark')}<div class="grow"><b>Ask the virtual agent</b><div class="small muted">Balance, lease, repairs, your rights – 24/7.</div></div></button></div>
-    <div class="card flush"><div class="card-head"><h3>Your repairs</h3><a class="btn sm" href="#/app/maintenance">All</a></div><div class="list">${d.tickets.map(t => `<a class="li" href="#/app/ticket/${t.id}"><span class="grow"><span class="title">${esc(t.title)}</span><span class="small muted">${t.ref} · ${ago(t.created_at)}</span></span>${pill(t.status)}</a>`).join('') || '<div class="muted">No repairs logged.</div>'}</div></div>
+    <div class="grid2">${feat('maintenance') ? `<a class="card row" href="#/app/maintenance/new" style="text-decoration:none">${icon('tool')}<div class="grow"><b>Report a problem</b><div class="small muted">Photos help. Emergencies are dispatched immediately.</div></div></a>`
+      : state.features.fixit_url ? `<a class="card row" href="${esc(state.features.fixit_url)}" target="_blank" rel="noopener" style="text-decoration:none">${icon('tool')}<div class="grow"><b>Something broken?</b><div class="small muted">Report it in Fixit, our repairs app. Emergencies: call your portfolio manager.</div></div></a>` : ''}
+      <button class="card row" style="text-align:left;cursor:pointer" onclick="document.getElementById('fab').click()">${icon('spark')}<div class="grow"><b>Ask the virtual agent</b><div class="small muted">Balance, lease, deposit, your rights – 24/7.</div></div></button></div>
+    ${feat('maintenance') ? `<div class="card flush"><div class="card-head"><h3>Your repairs</h3><a class="btn sm" href="#/app/maintenance">All</a></div><div class="list">${d.tickets.map(t => `<a class="li" href="#/app/ticket/${t.id}"><span class="grow"><span class="title">${esc(t.title)}</span><span class="small muted">${t.ref} · ${ago(t.created_at)}</span></span>${pill(t.status)}</a>`).join('') || '<div class="muted">No repairs logged.</div>'}</div></div>` : ''}
     <div class="grid2"><div class="card stack tight"><h3>${esc(l.title)}</h3><p class="small muted">${esc(l.address)}</p><div class="costs"><div><span>Lease</span><span>${fdate(l.start_date)} – ${fdate(l.end_date)}</span></div><div><span>Deposit held (with interest)</span><span class="num">${R2(d.deposit_held)}</span></div></div><a class="btn sm" href="#/app/lease/${l.id}">View lease</a></div>
       <div class="card stack tight"><h3>Your portfolio manager</h3>${d.pm ? `<div class="row"><span class="avatar">${initials(d.pm.name)}</span><div><b>${esc(d.pm.name)}</b><div class="small muted">${esc(d.pm.phone || '')}</div></div></div><a class="btn sm" href="#/app/inbox">Message</a>` : ''}</div></div>
     ${d.inspections.length ? `<div class="card flush"><div class="card-head"><h3>Inspections</h3></div><div class="list">${d.inspections.map(i => `<a class="li" href="#/app/inspection/${i.id}">${icon('pano')}<span class="grow">${INSP[i.type]} · ${fdate(i.date)}</span>${pill(i.status)}</a>`).join('')}</div></div>` : ''}`;
@@ -271,7 +272,7 @@ route('/app/property/:id', async ({ id }, q) => {
   const pg = page(p.title, { back: '#/app/properties', sub: esc(p.suburb || ''), actions: p.listing_status === 'live' ? `<a class="btn sm" href="#/p/${p.id}" target="_blank">${icon('eye')}<span class="hide-sm">Public listing</span></a>` : '' });
   const active = p.leases.find(l => l.status === 'active'), pend = p.leases.find(l => l.status === 'awaiting_signature');
   const tabs = p.kind === 'project' ? [['overview', 'Overview'], ['snags', 'Snags'], ['inspections', 'Inspections'], ['listing', 'Details']]
-    : [['overview', 'Overview'], ['listing', 'Listing & media'], ['tenancy', 'Tenancy'], ['money', 'Money'], ['maintenance', 'Repairs'], ['inspections', 'Inspections'], ['docs', 'Documents']];
+    : [['overview', 'Overview'], ['listing', 'Listing & media'], ['tenancy', 'Tenancy'], ['money', 'Money'], ...(feat('maintenance') ? [['maintenance', 'Repairs']] : []), ['inspections', 'Inspections'], ['docs', 'Documents']];
   let tab = q.tab || 'overview';
   pg.innerHTML = `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-t="${k}" aria-selected="${k === tab}">${l}</button>`).join('')}</div><div id="tb" class="stack"></div>`;
   const T = {
@@ -287,7 +288,7 @@ route('/app/property/:id', async ({ id }, q) => {
       </div><div class="stack">
         ${p.fees ? `<div class="card stack tight"><h3>Owner economics</h3><div class="costs">${p.fees.lines.map(l => `<div><span>${esc(l.label)}</span><span class="num">−${R(l.amount)}</span></div>`).join('')}<div class="tot"><span>Net to owner / month</span><span class="num">${R(p.fees.net)}</span></div></div><span class="small muted">AVA costs ${p.fees.pct_of_rent}% of rent vs ~11.5% with a traditional agent.</span></div>` : ''}
         ${p.price ? `<div class="card stack tight"><h3><span class="ai">${icon('spark')} Rent check</span></h3><p><b>${R(p.price.low)} – ${R(p.price.high)}</b> <span class="muted small">suggested</span></p><p class="small muted">${p.price.basis.map(esc).join('<br>')}</p>${p.rent ? `<span class="pill ${p.rent > p.price.high ? 'warn' : p.rent < p.price.low ? 'info' : 'ok'}">${p.rent > p.price.high ? 'Above market – may take longer to let' : p.rent < p.price.low ? 'Below market' : 'In line with the market'}</span>` : ''}</div>` : ''}
-        <div class="card flush"><div class="card-head"><h3>Open repairs</h3><a class="btn sm" href="#/app/maintenance/new?property=${p.id}">${icon('plus')}</a></div><div class="list">${p.tickets.filter(t => !['closed', 'cancelled'].includes(t.status)).map(t => `<a class="li" href="#/app/ticket/${t.id}"><span class="grow"><span class="title">${esc(t.title)}</span><span class="small muted">${t.ref} · <span class="prio-${t.priority}">${t.priority}</span></span></span>${pill(t.status)}</a>`).join('') || '<div class="muted small">None</div>'}</div></div>
+        ${feat('maintenance') ? `<div class="card flush"><div class="card-head"><h3>Open repairs</h3><a class="btn sm" href="#/app/maintenance/new?property=${p.id}">${icon('plus')}</a></div><div class="list">${p.tickets.filter(t => !['closed', 'cancelled'].includes(t.status)).map(t => `<a class="li" href="#/app/ticket/${t.id}"><span class="grow"><span class="title">${esc(t.title)}</span><span class="small muted">${t.ref} · <span class="prio-${t.priority}">${t.priority}</span></span></span>${pill(t.status)}</a>`).join('') || '<div class="muted small">None</div>'}</div></div>` : ''}
       </div></div>`,
     listing: () => `<div class="grid2" style="align-items:start"><div class="card stack">${propForm(p)}<div class="row"><button class="btn" id="aic">${icon('spark')}Write listing with AI</button><span class="spacer"></span><button class="btn primary" id="psave">Save</button></div>
         <label class="field"><span>Headline</span><input class="input" id="headline" value="${esc(p.headline || '')}"></label><label class="field"><span>Description</span><textarea class="input" id="desc" rows="7">${esc(p.description || '')}</textarea></label></div>
@@ -563,7 +564,7 @@ route('/app/inbox', async (_, q) => {
 route('/app/reports', async () => {
   const pg = page('Reports');
   const R_ = [['rent-roll', 'Rent roll', 'Every active lease with rent, escalation, balance and deposit.'], ['arrears', 'Arrears', 'Tenants owing money, with phone numbers for follow-up.'],
-    ['maintenance', 'Maintenance', 'All repairs with category, priority, contractor, cost and days open.'], ['snags', 'Snag list', 'All snags with trade, contractor, quantity × rate, due date and rework count.'], ['owner-ledger', 'Owner ledger', 'Every trust movement per property – for audits and tax returns.']];
+    ...(feat('maintenance') ? [['maintenance', 'Maintenance', 'All repairs with category, priority, contractor, cost and days open.']] : []), ['snags', 'Snag list', 'All snags with trade, contractor, quantity × rate, due date and rework count.'], ['owner-ledger', 'Owner ledger', 'Every trust movement per property – for audits and tax returns.']];
   pg.innerHTML = `<div class="grid3">${R_.map(([k, t, d]) => `<a class="card stack tight" href="/api/reports/${k}.xlsx" style="color:inherit;text-decoration:none">${icon('excel')}<h3>${t}</h3><p class="small muted">${d}</p><span class="btn sm">Download Excel</span></a>`).join('')}</div>`;
 }, A);
 
@@ -574,6 +575,9 @@ route('/app/settings', async () => {
   const f = (k, l, t = 'number', h = '') => `<label class="field"><span>${l}</span><input class="input" name="${k}" type="${t}" value="${esc(Array.isArray(s[k]) ? JSON.stringify(s[k]) : s[k] ?? '')}" ${admin ? '' : 'disabled'} step="any">${h ? `<small>${h}</small>` : ''}</label>`;
   pg.innerHTML = `<form class="stack" id="sf">
     ${state.user.role === 'pm' ? `<div class="card stack"><h3>My commission</h3><p class="small muted">Option 2 in the pricing model: pick between 3% and 5% (used when AVA runs in 'chosen' mode).</p><div class="row"><input class="input" id="cp" type="number" min="3" max="5" step="0.5" value="${state.user.commission_pct || 4}" style="max-width:120px"><button class="btn" type="button" id="cps">Save</button></div></div>` : ''}
+    ${admin ? `<div class="card stack"><h3>Modules</h3><label class="check"><input type="checkbox" name="module_maintenance" ${s.module_maintenance ? 'checked' : ''}>Maintenance in AVA – repair requests, contractor quotes, maintenance companies and the job map</label>
+      <p class="small muted">Off while maintenance runs in Fixit: tenants and owners are pointed to the link below, and inspections hand repairs found to the portfolio manager.</p>
+      <div class="form cols">${f('fixit_url', 'Fixit link for repairs', 'text', 'e.g. https://fixit.example.co.za')}</div></div>` : ''}
     <div class="card stack"><h3>Tenant fees</h3><div class="form cols">${f('vetting_fee', 'Vetting fee (R)')}${f('deposit_months', 'Deposit (× rent)')}${f('key_deposit', 'Key deposit (R)')}${f('inspection_base', 'Inspection base (≤2 bed, 1 bath)')}${f('inspection_extra_room', 'Per extra room')}</div></div>
     <div class="card stack"><h3>Landlord fees</h3><div class="form cols">${f('admin_fee', 'Admin fee per new contract')}${f('insurance_monthly', 'Insurance / month')}${f('own_admin_monthly', 'Own administrator / month')}${f('ava_tiers', 'Platform fee per home by homes managed [[up to, R]]', 'text', 'e.g. [[5,399],[20,349],[50,299],[999999,249]]')}</div></div>
     <div class="card stack"><h3>Portfolio managers</h3><div class="form cols"><label class="field"><span>Commission mode</span><select class="input" name="pm_commission_mode" ${admin ? '' : 'disabled'}><option value="tiered">Tiered by homes managed</option><option value="chosen" ${s.pm_commission_mode === 'chosen' ? 'selected' : ''}>PM picks 3–5%</option></select></label>${f('pm_tiers', 'Tiers [[up to, %]]', 'text')}${f('finders_fee', "Finder's fee / month")}</div></div>
@@ -586,6 +590,7 @@ route('/app/settings', async () => {
     e.preventDefault(); const o = {};
     $$('#sf [name]').forEach(i => { let v = i.type === 'checkbox' ? i.checked : i.value; if (i.type === 'number') v = +v; if (typeof v === 'string' && v.trim().startsWith('[')) { try { v = JSON.parse(v); } catch (_) { } } o[i.name] = v; });
     await act($('#ss'), () => api.put('/api/settings', o), 'Settings saved');
+    const { refreshMe } = await import('./core.js'); await refreshMe(); go('#/app/settings?r=' + Date.now());   // menus follow the modules switched on
   });
 }, A);
 
@@ -609,7 +614,7 @@ route('/app/reviews', async () => {
 route('/app/ai', async () => {
   const pg = page('AI & virtual agent', { actions: `<button class="btn sm" onclick="document.getElementById('fab').click()">${icon('spark')}Try the agent</button>` });
   const s = await api.get('/api/agent/stats');
-  const CAPS = [
+  const CAPS_ALL = [
     ['chat', 'Virtual leasing agent', 'Answers prospects 24/7 from the listing data: costs, pets, backup power, area. Pre-qualifies on income, offers open slots and books viewings, starts applications, finds similar homes, and hands over hot leads to you.', `${s.viewings_booked} viewings booked this week`],
     ['users', 'Tenant & owner agent', 'Balance and payment reference, repair status, lease dates, notice, renewal, inspections, deposit refund, statements, approvals – answered from live data, in plain language, any hour.', `${s.messages} messages this week`],
     ['tool', 'Maintenance triage', 'Reads every request, sets category, trade, urgency and who is liable, gives safety steps for emergencies, dispatches emergencies within your auto-approve limit, and requests quotes from the best-rated contractors.', `${s.tickets_triaged} requests triaged · ${s.emergencies} emergencies dispatched`],
@@ -620,6 +625,7 @@ route('/app/ai', async () => {
     ['refresh', 'Renewal risk & anomalies', 'Scores each tenancy for renewal risk from payment history and repair experience; flags duplicate payments and repair costs far above normal.', 'Command centre'],
     ['bolt', 'Autopilot', 'Rent charging, escalations, arrears ladder, deposit interest, renewal offers, inspection bookings, quote shortlists, stalled-job nudges, snag deadlines, payout runs.', `${s.autopilot_actions} actions logged`],
   ];
+  const CAPS = CAPS_ALL.filter(([, t]) => feat('maintenance') || !['Maintenance triage', 'Quote ranking'].includes(t));
   pg.innerHTML = `<div class="kpis"><div class="kpi"><span>Conversations (7 days)</span><b>${s.conversations}</b></div><div class="kpi good"><span>Handled without you</span><b>${s.messages ? Math.round(100 * (s.messages - s.handoffs) / s.messages) : 100}%</b></div>
       <div class="kpi"><span>Handed to you</span><b>${s.handoffs}</b></div><div class="kpi"><span>Viewings booked by the agent</span><b>${s.viewings_booked}</b></div></div>
     <div class="grid3">${CAPS.map(([ic, t, d, m]) => `<div class="card stack tight"><div class="row">${icon(ic)}<h3 class="grow">${t}</h3></div><p class="small muted">${d}</p><span class="pill jac" style="width:max-content;max-width:100%;white-space:normal">${esc(m)}</span></div>`).join('')}</div>

@@ -56,24 +56,25 @@ def tick(today=None):
         if held > 0 and not db.val("SELECT 1 FROM ledger WHERE lease_id=? AND kind='deposit_interest' AND period=?", l["id"], per):
             sv.post("deposit", "deposit_interest", round(held * fees.S("deposit_interest_pct") / 1200, 2), l["property_id"], l["id"], "Interest on deposit", t.isoformat(), per)
             out["interest"] += 1
-    # quotes past their deadline -> shortlist and send to the landlord
-    for tk in db.q("SELECT * FROM tickets WHERE status='quoting' AND quote_deadline<=?", datetime.combine(t, datetime.now().time()).isoformat(timespec="minutes")):
-        if sv.shortlist(tk["id"]):
-            out["shortlisted"] += 1
-        else:
-            p = sv.prop(tk["property_id"])
-            sv.task(p["pm_id"], p["id"], "maintenance", f"No quotes yet: {tk['title']}", "Quote window closed with no quotes.", f"#/app/ticket/{tk['id']}", 1, dedupe=f"noquotes:{tk['id']}")
-    # tickets with all requested quotes in -> shortlist early
-    for tk in db.q("SELECT t.* FROM tickets t WHERE status='quoting' AND NOT EXISTS (SELECT 1 FROM quotes q WHERE q.ticket_id=t.id AND q.status='requested') "
-                   "AND EXISTS (SELECT 1 FROM quotes q WHERE q.ticket_id=t.id AND q.status='submitted')"):
-        if sv.shortlist(tk["id"]):
-            out["shortlisted"] += 1
-    # stalled jobs
-    for tk in db.q("SELECT t.*, p.pm_id, p.title ptitle FROM tickets t JOIN properties p ON p.id=t.property_id WHERE t.status IN ('approved','scheduled') AND t.updated_at<?",
-                   (datetime.combine(t, datetime.min.time()) - timedelta(days=5)).isoformat()):
-        sv.task(tk["pm_id"], tk["property_id"], "maintenance", f"Stalled: {tk['title']}", "No update from the contractor for 5 days. AVA nudged them.",
-                f"#/app/ticket/{tk['id']}", 2, dedupe=f"stalled:{tk['id']}:{t.isoformat()[:7]}")
-        sv.notify(tk["contractor_id"], "Update needed", f"{tk['ref']} {tk['title']} – please book or update.", f"#/app/ticket/{tk['id']}", "maintenance")
+    if fees.on("maintenance"):   # repairs run in Fixit while the module is off
+        # quotes past their deadline -> shortlist and send to the landlord
+        for tk in db.q("SELECT * FROM tickets WHERE status='quoting' AND quote_deadline<=?", datetime.combine(t, datetime.now().time()).isoformat(timespec="minutes")):
+            if sv.shortlist(tk["id"]):
+                out["shortlisted"] += 1
+            else:
+                p = sv.prop(tk["property_id"])
+                sv.task(p["pm_id"], p["id"], "maintenance", f"No quotes yet: {tk['title']}", "Quote window closed with no quotes.", f"#/app/ticket/{tk['id']}", 1, dedupe=f"noquotes:{tk['id']}")
+        # tickets with all requested quotes in -> shortlist early
+        for tk in db.q("SELECT t.* FROM tickets t WHERE status='quoting' AND NOT EXISTS (SELECT 1 FROM quotes q WHERE q.ticket_id=t.id AND q.status='requested') "
+                       "AND EXISTS (SELECT 1 FROM quotes q WHERE q.ticket_id=t.id AND q.status='submitted')"):
+            if sv.shortlist(tk["id"]):
+                out["shortlisted"] += 1
+        # stalled jobs
+        for tk in db.q("SELECT t.*, p.pm_id, p.title ptitle FROM tickets t JOIN properties p ON p.id=t.property_id WHERE t.status IN ('approved','scheduled') AND t.updated_at<?",
+                       (datetime.combine(t, datetime.min.time()) - timedelta(days=5)).isoformat()):
+            sv.task(tk["pm_id"], tk["property_id"], "maintenance", f"Stalled: {tk['title']}", "No update from the contractor for 5 days. AVA nudged them.",
+                    f"#/app/ticket/{tk['id']}", 2, dedupe=f"stalled:{tk['id']}:{t.isoformat()[:7]}")
+            sv.notify(tk["contractor_id"], "Update needed", f"{tk['ref']} {tk['title']} – please book or update.", f"#/app/ticket/{tk['id']}", "maintenance")
     # overdue snags
     for s in db.q("SELECT s.*, p.pm_id FROM snags s JOIN properties p ON p.id=s.property_id WHERE s.status IN ('open','in_progress') AND s.due_date<?", t.isoformat()):
         if sv.task(s["pm_id"], s["property_id"], "snag", f"Overdue snag {s['ref']}: {s['title']}",
@@ -107,19 +108,20 @@ def tick(today=None):
         db.upd("applications", a["id"], score=sc, score_notes="\n".join(notes), status="screening")
         sv.task(a["pm_id"], a["property_id"], "application", f"Application {sc}/100 – {a['title']}", f"{a['name']}: " + notes[0],
                 f"#/app/applications", 1 if sc >= 70 else 3, dedupe=f"app:{a['id']}")
-    # finished jobs with photo proof close themselves if nobody objects
-    cutoff = (datetime.now() - timedelta(hours=fees.S("auto_close_hours"))).isoformat(timespec="seconds")
-    for tk in db.q("SELECT id FROM tickets WHERE status='completed' AND completed_at<=?", cutoff):
-        sv.close_job(tk["id"], auto=True)
-        out["jobs_closed"] = out.get("jobs_closed", 0) + 1
-    # maintenance listing subscriptions
-    for c in db.q("SELECT c.user_id, c.sub_until, u.company FROM contractors c JOIN users u ON u.id=c.user_id WHERE c.approved=1 AND c.sub_until IS NOT NULL"):
-        days = (date.fromisoformat(c["sub_until"]) - t).days
-        if days in (3, 0, -1):
-            key = f"sub:{c['user_id']}:{c['sub_until']}:{days}"
-            if sv.task(None, None, "_sub", "", dedupe=key):
-                sv.notify(c["user_id"], "Your AVA listing expires soon" if days > 0 else "Your AVA listing has expired",
-                          f"Renew for R{fees.S('contractor_listing_fee')}/month to keep receiving repair requests within {fees.S('quote_radius_km'):g} km.", "#/app", "subscription")
+    if fees.on("maintenance"):
+        # finished jobs with photo proof close themselves if nobody objects
+        cutoff = (datetime.now() - timedelta(hours=fees.S("auto_close_hours"))).isoformat(timespec="seconds")
+        for tk in db.q("SELECT id FROM tickets WHERE status='completed' AND completed_at<=?", cutoff):
+            sv.close_job(tk["id"], auto=True)
+            out["jobs_closed"] = out.get("jobs_closed", 0) + 1
+        # maintenance listing subscriptions
+        for c in db.q("SELECT c.user_id, c.sub_until, u.company FROM contractors c JOIN users u ON u.id=c.user_id WHERE c.approved=1 AND c.sub_until IS NOT NULL"):
+            days = (date.fromisoformat(c["sub_until"]) - t).days
+            if days in (3, 0, -1):
+                key = f"sub:{c['user_id']}:{c['sub_until']}:{days}"
+                if sv.task(None, None, "_sub", "", dedupe=key):
+                    sv.notify(c["user_id"], "Your AVA listing expires soon" if days > 0 else "Your AVA listing has expired",
+                              f"Renew for R{fees.S('contractor_listing_fee')}/month to keep receiving repair requests within {fees.S('quote_radius_km'):g} km.", "#/app", "subscription")
     db.set_setting("last_tick", datetime.now().isoformat(timespec="seconds"))
     return out
 

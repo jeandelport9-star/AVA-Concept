@@ -141,6 +141,25 @@ def listing_reply(p, t, u, ctx):
     return "unknown", None, []
 
 
+REPAIR_WORDS = r"\b(broke|broken|leak\w*|burst|blocked|not working|repairs?|fix|fixing|maintenance|geyser|plumb\w*|no power|power is off|sparks?|sparking|tripping|damp|cracks?|cracked|quotes?|contractors?)\b"
+
+
+def repairs_elsewhere(u, text):
+    """While maintenance runs in Fixit: say where repairs go, still give emergency safety steps, and point to the PM."""
+    tri = ai.triage(text)
+    pm = db.q1("""SELECT u.name, u.phone FROM users u WHERE u.id = COALESCE(
+                    (SELECT p.pm_id FROM leases l JOIN properties p ON p.id=l.property_id WHERE l.tenant_id=? ORDER BY l.id DESC LIMIT 1),
+                    (SELECT pm_id FROM properties WHERE landlord_id=? LIMIT 1))""", u["id"], u["id"]) if u["role"] in ("tenant", "landlord") else None
+    url = fees.S("fixit_url")
+    reply = "Repairs and maintenance are handled in Fixit, AVA's separate repairs app" + (" – report it there and a vetted company will quote." if url else " (launching soon).")
+    if tri.get("priority") == "Urgent" and tri.get("advice"):
+        reply += " Right now: " + tri["advice"]
+    if pm:
+        reply += f" For anything urgent call your portfolio manager, {pm['name']}" + (f", on {pm['phone']}." if pm.get("phone") else ".")
+    acts = ([{"label": "Report it in Fixit", "href": url}] if url else []) + [{"label": "Message my portfolio manager", "href": "#/app/inbox"}]
+    return "repairs_fixit", reply, acts
+
+
 def respond(u, text, ctx=None):
     ctx = ctx or {}
     t = (text or "").lower().strip()
@@ -161,6 +180,8 @@ def respond(u, text, ctx=None):
         acts = [{"label": f"{x['headline'] or x['title']} – {money(x['rent'])}", "href": f"#/p/{x['id']}"} for x in rows[:4]]
         from urllib.parse import urlencode
         acts.append({"label": "See all results with these filters", "href": "#/search?" + urlencode({("areas" if k == "city" else k): v for k, v in q.items()})})
+    if not reply and u and not fees.on("maintenance") and u["role"] in ("tenant", "landlord", "pm", "admin") and re.search(REPAIR_WORDS, t):
+        intent, reply, acts = repairs_elsewhere(u, text)
     if not reply and u:
         intent, reply, acts = signed_in(u, t, text)
     if not reply:

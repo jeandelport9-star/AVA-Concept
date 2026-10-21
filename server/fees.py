@@ -31,6 +31,9 @@ DEFAULTS = {
     "quotes_to_request": 3,
     "auto_approve_limit": 1500,         # emergencies under this are dispatched without waiting for the landlord
     "shortlist_size": 3,
+    # modules
+    "module_maintenance": False,        # repairs, contractor quotes & marketplace – switched off: maintenance runs in Fixit for now
+    "fixit_url": "",                    # where tenants/owners report repairs while the module is off (e.g. the Fixit app link)
     # maintenance marketplace
     "contractor_listing_fee": 250,      # R/month for a maintenance company to receive requests
     "quote_radius_km": 10,              # only companies within this distance of the property get the request
@@ -65,6 +68,12 @@ def S(key):
     if v is None or v in OLD_DEFAULTS.get(key, []):
         return DEFAULTS.get(key)
     return v
+
+
+def on(module):
+    """Is an optional module switched on? (Admin → Settings & fees.)"""
+    v = S("module_" + module)
+    return v not in (False, 0, "0", "false", "False", None, "")
 
 
 def all_settings():

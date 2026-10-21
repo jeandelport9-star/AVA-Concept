@@ -1,5 +1,5 @@
 // Signed-in workspace: side navigation (desktop), bottom tabs (phone), top bar, notifications, AVA Assist.
-import { $, $$, api, esc, go, icon, initials, LOGO, modal, state, ago, toast, refreshMe } from './core.js';
+import { $, $$, api, esc, feat, go, icon, initials, LOGO, modal, state, ago, toast, refreshMe } from './core.js';
 
 const NAV = {
   pm: [['Today', [['', 'Command centre', 'bolt'], ['inbox', 'Inbox', 'chat'], ['ai', 'AI & virtual agent', 'spark']]],
@@ -23,6 +23,21 @@ const BOTTOM = {
   contractor: [['', 'My jobs', 'tool'], ['jobs', 'Browse jobs', 'map'], ['snags', 'Snags', 'clip'], ['profile', 'Profile', 'users']],
 };
 
+// menu entries that belong to the maintenance module (switched off while maintenance runs in Fixit)
+const MAINT = new Set(['maintenance', 'jobs']);
+const navFor = role => {
+  if (feat('maintenance')) return NAV[role];
+  if (role === 'contractor') return [['', [['snags', 'My snags', 'clip']]]];
+  return NAV[role].map(([g, items]) => [g, items.filter(([k]) => !MAINT.has(k))]);
+};
+const bottomFor = role => {
+  if (feat('maintenance')) return BOTTOM[role];
+  if (role === 'contractor') return [['snags', 'My snags', 'clip']];
+  const b = BOTTOM[role].filter(([k]) => !MAINT.has(k));
+  return role === 'tenant' ? [b[0], b[1], ['lease', 'Lease', 'doc'], ...b.slice(2)] : role === 'landlord' ? [b[0], b[1], ['inspections', 'Inspect', 'pano'], ...b.slice(2)]
+    : [b[0], b[1], ['properties', 'Homes', 'building'], ...b.slice(2)];
+};
+
 export function page(title, { back, actions = '', sub = '' } = {}) {
   const u = state.user;
   const cur = (location.hash.match(/^#\/app\/?([^/?]*)/) || [])[1] || '';
@@ -31,12 +46,12 @@ export function page(title, { back, actions = '', sub = '' } = {}) {
       <nav class="bottomnav" id="bottom"></nav>`;
   }
   document.body.classList.toggle('pro', u.role === 'contractor');   // maintenance companies: no rental portal, no rental assistant
-  $('#side').innerHTML = `<a class="logo" href="${u.role === 'contractor' ? '#/app' : '#/'}">${LOGO}</a>` + NAV[u.role].map(([g, items]) => (g ? `<div class="grp">${g}</div>` : '') +
+  $('#side').innerHTML = `<a class="logo" href="${u.role === 'contractor' ? (feat('maintenance') ? '#/app' : '#/app/snags') : '#/'}">${LOGO}</a>` + navFor(u.role).map(([g, items]) => (g ? `<div class="grp">${g}</div>` : '') +
     items.map(([k, l, ic]) => `<a href="#/app${k ? '/' + k : ''}" class="${cur === k ? 'on' : ''}">${icon(ic)}${l}</a>`).join('')).join('') +
     (u.role === 'contractor' ? '' : `<a href="#/search">${icon('search')}Browse listings</a>`) + `
     <div class="me"><span class="avatar">${initials(u.name)}</span><div style="min-width:0;flex:1"><b style="color:#fff;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.name)}</b><span>${{ pm: 'Portfolio manager', admin: 'AVA admin', landlord: 'Landlord', tenant: 'Tenant', contractor: 'Maintenance company' }[u.role]}</span></div>
     <button class="iconbtn" id="logout" title="Sign out" style="color:#c9d6d2">${icon('logout')}</button></div>`;
-  $('#bottom').innerHTML = BOTTOM[u.role].map(([k, l, ic]) => `<a href="#/app${k ? '/' + k : ''}" class="${cur === k ? 'on' : ''}">${icon(ic)}${l}</a>`).join('');
+  $('#bottom').innerHTML = bottomFor(u.role).map(([k, l, ic]) => `<a href="#/app${k ? '/' + k : ''}" class="${cur === k ? 'on' : ''}">${icon(ic)}${l}</a>`).join('');
   $('#topbar').innerHTML = `${back ? `<a class="iconbtn back" href="${back}" aria-label="Back">${icon('back')}</a>` : ''}<h1>${esc(title)}${sub ? ` <span class="muted small" style="font-family:var(--f-ui);font-weight:500">${sub}</span>` : ''}</h1>
     <div class="row noprint">${actions}</div><button class="iconbtn noprint" id="bell" aria-label="Notifications">${icon('bell')}${state.unread ? `<span class="badge">${state.unread}</span>` : ''}</button>`;
   $('#logout').onclick = async () => { await api.post('/api/auth/logout'); state.user = null; location.hash = '#/'; location.reload(); };
@@ -48,8 +63,8 @@ export function page(title, { back, actions = '', sub = '' } = {}) {
 export function moreMenu() {
   const u = state.user;
   const pg = page('More');
-  pg.innerHTML = `<div class="card flush list">${NAV[u.role].flatMap(([, items]) => items).map(([k, l, ic]) => `<a class="li" href="#/app${k ? '/' + k : ''}">${icon(ic)}<span class="grow">${l}</span></a>`).join('')}
-    ${state.user.role === 'contractor' ? `<a class="li" href="#/app/jobs">${icon('map')}<span class="grow">Browse jobs</span></a>` : `<a class="li" href="#/search">${icon('search')}<span class="grow">Browse listings</span></a>`}<button class="li" id="lo">${icon('logout')}<span class="grow">Sign out</span></button></div>`;
+  pg.innerHTML = `<div class="card flush list">${navFor(u.role).flatMap(([, items]) => items).map(([k, l, ic]) => `<a class="li" href="#/app${k ? '/' + k : ''}">${icon(ic)}<span class="grow">${l}</span></a>`).join('')}
+    ${state.user.role === 'contractor' && feat('maintenance') ? `<a class="li" href="#/app/jobs">${icon('map')}<span class="grow">Browse jobs</span></a>` : `<a class="li" href="#/search">${icon('search')}<span class="grow">Browse listings</span></a>`}<button class="li" id="lo">${icon('logout')}<span class="grow">Sign out</span></button></div>`;
   $('#lo').onclick = async () => { await api.post('/api/auth/logout'); location.hash = '#/'; location.reload(); };
 }
 

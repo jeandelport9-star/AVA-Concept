@@ -1,5 +1,5 @@
 // Public portal: search like Property24 / Private Property, plus AVA's 360 tours, online viewings and applications.
-import { $, $$, api, act, esc, fdate, fslot, go, icon, LOGO, modal, onLeave, R, refreshMe, route, state, toast, formData, plural } from './core.js';
+import { $, $$, api, act, esc, feat, fdate, fslot, go, icon, LOGO, modal, onLeave, R, refreshMe, route, state, toast, formData, plural } from './core.js';
 import { PanoViewer } from './pano.js';
 
 const app = () => $('#app');
@@ -10,7 +10,7 @@ export function nav(active = '') {
     <a class="logo" href="#/">${LOGO}</a>
     <nav><a href="#/search" class="${active === 'rent' ? 'on' : ''}">To rent</a><a href="#/search?view=map" class="${active === 'map' ? 'on' : ''}">Map</a>
       <a href="#/landlords" class="${active === 'landlords' ? 'on' : ''}">For landlords</a><a href="#/agents" class="${active === 'agents' ? 'on' : ''}">For agents</a>
-      <a href="#/pros" class="${active === 'pros' ? 'on' : ''}">Maintenance</a><a href="#/explore" class="${active === 'explore' ? 'on' : ''}">Investor tools</a></nav>
+      ${feat('maintenance') ? `<a href="#/pros" class="${active === 'pros' ? 'on' : ''}">Maintenance</a>` : ''}<a href="#/explore" class="${active === 'explore' ? 'on' : ''}">Investor tools</a></nav>
     <span class="spacer"></span>
     ${u ? `<a class="btn sm" href="#/app">${icon('grid')}My AVA</a>` : `<a class="btn ghost sm" href="#/login">Sign in</a><a class="btn primary sm" href="#/register">Join free</a>`}
   </div></header>`;
@@ -19,7 +19,7 @@ export const footer = () => `<footer class="footer"><div class="wrap grid3" styl
   <div class="stack tight"><a class="logo" href="#/" style="color:#fff">${LOGO}</a><p>Rent with peace of mind. One portfolio manager, hundreds of homes, nothing missed.</p></div>
   <div class="stack tight"><b style="color:#fff">Renters</b><a href="#/search">Search homes</a><a href="#/search?view=map">Search the map</a><a href="#/register">Create an account</a></div>
   <div class="stack tight"><b style="color:#fff">Owners & agents</b><a href="#/landlords">List with AVA</a><a href="#/agents">Start your digital agency</a><a href="#/explore">Yield & bond calculator</a></div>
-  <div class="stack tight"><b style="color:#fff">Maintenance companies</b><a href="#/pros">Find a rated company</a><a href="#/pros/join">List your company – R250/month</a></div>
+  ${feat('maintenance') ? `<div class="stack tight"><b style="color:#fff">Maintenance companies</b><a href="#/pros">Find a rated company</a><a href="#/pros/join">List your company – R250/month</a></div>` : ''}
   <div class="stack tight small"><b style="color:#fff">Compliance</b><span>Rental Housing Act 50 of 1999 · CPA · POPIA · PPRA registered portfolio managers · deposits held in interest-bearing trust.</span></div>
 </div></footer>`;
 
@@ -371,7 +371,7 @@ route('/landlords', async () => {
       <div id="calc"></div></div>
       <div class="card stack"><h3>Pricing</h3><div id="tiers"></div></div></div>
     <div class="steps"><div class="step"><h3>No steps missed</h3><p class="muted">A compliance checklist on every lease: vetting, signatures, deposit in an interest-bearing account, joint inspections, refund deadlines.</p></div>
-      <div class="step"><h3>Approve in one tap</h3><p class="muted">Repairs come to you with quotes from three rated companies within 10 km – compare price, rating and distance, and choose. Emergencies under your limit are handled immediately.</p></div>
+      <div class="step"><h3>Approve in one tap</h3><p class="muted">${feat('maintenance') ? 'Repairs come to you with quotes from three rated companies within 10 km – compare price, rating and distance, and choose.' : 'Applications, leases, renewals and payouts come to you ready to approve – one tap and AVA does the rest.'} Emergencies under your limit are handled immediately.</p></div>
       <div class="step"><h3>Know your rights</h3><p class="muted">AVA Learn explains the Rental Housing Act, CPA and PIE Act in plain language, right where decisions are made.</p></div>
       <div class="step"><h3>Real statements</h3><p class="muted">Monthly owner statements with every rand traced: rent in, fees, repairs, payout. Exports to Excel for your tax return.</p></div></div>
     <div class="row wrap"><a class="btn cta lg" href="#/register?role=landlord">List my property</a><a class="btn lg" href="#/explore">Run the yield numbers</a></div></div>` + footer();
@@ -465,7 +465,7 @@ route('/login', async (_, q) => {
 });
 
 route('/register', async (_, q) => {
-  const roles = [['tenant', 'I want to rent'], ['landlord', 'I own property'], ['pm', 'I want to be a portfolio manager'], ['contractor', "I'm a contractor"]];
+  const roles = [['tenant', 'I want to rent'], ['landlord', 'I own property'], ['pm', 'I want to be a portfolio manager'], ...(feat('maintenance') ? [['contractor', "I'm a contractor"]] : [])];
   app().innerHTML = nav() + `<div class="wrap" style="max-width:520px;padding-top:40px;padding-bottom:60px"><div class="card stack"><h1>Join AVA</h1>
     <form class="form" id="rf"><div class="seg" id="rs">${roles.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${(q.role || 'tenant') === v}">${l}</button>`).join('')}</div>
     <input type="hidden" name="role" value="${esc(q.role || 'tenant')}">

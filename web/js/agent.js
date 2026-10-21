@@ -1,6 +1,6 @@
 // AVA Virtual Agent – one chat for visitors, renters, tenants, owners and contractors. It answers from live data and acts:
 // books viewings, starts applications, logs repairs, opens the tour, hands over to the portfolio manager.
-import { $, $$, api, esc, go, icon, state, toast, fslot } from './core.js';
+import { $, $$, api, esc, go, icon, state, toast, fslot, feat } from './core.js';
 
 const log = [];
 let session = '';
@@ -13,7 +13,8 @@ function greeting() {
   if (pid) return "Hi! I'm AVA's virtual agent for this home. Ask me anything – costs, pets, backup power, the area – or I can book you a viewing right now.";
   if (!u) return "Hi! I'm AVA's virtual agent. Tell me what you're looking for (e.g. “2 bed in Brooklyn under R12k with solar”) and I'll find it, book viewings and help you apply.";
   return {
-    tenant: "Hi! I'm your AVA virtual agent. Ask about your balance, a repair, your lease, notice, the deposit or your rights – or just describe what's broken.",
+    tenant: feat('maintenance') ? "Hi! I'm your AVA virtual agent. Ask about your balance, a repair, your lease, notice, the deposit or your rights – or just describe what's broken."
+      : "Hi! I'm your AVA virtual agent. Ask about your balance, your lease, notice, inspections, the deposit or your rights.",
     landlord: 'Hi! Ask me how your homes are doing, what you earned, or what is waiting for your approval.',
     contractor: 'Hi! Ask me about your quote requests, jobs and snags.',
   }[u.role] || "Hi! I'm the virtual agent. Paste any tenant question to see how I'd answer it, or ask about deposit rules, notice periods and evictions.";
@@ -22,8 +23,8 @@ function chips() {
   const u = state.user;
   if (ctxProperty()) return ['What does it cost to move in?', 'Are pets allowed?', 'Is there backup power?', 'Can I afford it on R45k?', 'When can I view it?', 'Speak to a person'];
   if (!u) return ['2 bed in Pretoria under R12k', 'Pet friendly house with a garden', 'Something with solar in Centurion'];
-  return { tenant: ['What do I owe?', 'Status of my repair', 'When is my inspection?', 'I want to give notice', 'Will I get my deposit back?'],
-    landlord: ['Anything to approve?', 'How much did I earn?', 'Are my tenants paying?'], contractor: ['What jobs do I have?'] }[u.role] || ['How does the deposit refund work?', 'Notice period for a fixed-term lease?', 'Can I evict for arrears?'];
+  return { tenant: ['What do I owe?', ...(feat('maintenance') ? ['Status of my repair'] : []), 'When is my inspection?', 'I want to give notice', 'Will I get my deposit back?'],
+    landlord: [...(feat('maintenance') ? ['Anything to approve?'] : []), 'How much did I earn?', 'Are my tenants paying?'], contractor: ['What jobs do I have?'] }[u.role] || ['How does the deposit refund work?', 'Notice period for a fixed-term lease?', 'Can I evict for arrears?'];
 }
 
 export function toggleAgent() {
