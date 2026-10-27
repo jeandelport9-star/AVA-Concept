@@ -47,7 +47,7 @@ The sign-in page also has one-tap buttons for these accounts.
 | Tenant (moving out) | lerato@example.com | Pay, outgoing inspection, deposit, virtual agent |
 | Tenant | johan@example.com | Report a problem and watch the AI triage |
 | Contractor | plumbfix@example.co.za | Snags to mark fixed with an 'after' photo. *(With maintenance on:* *Browse jobs* map – apply to quote on nearby repairs; R250/month listing, "Job done" photo button, "Report an issue" with a voice note, ratings and replies*)* |
-| AVA admin | admin@ava.co.za | Users, review moderation, fees and settings, PayFast, AI key |
+| AVA admin | admin@ava.co.za | **Trust accounts** – trial balance, reconcile & lock last month, release payment batches, debit orders, deposit investments; users, settings |
 
 The demo house **Jacaranda House** uses the real BLK360 G2 panoramas from Site Inspect's Troye House capture. Both its public 360° tour and its ingoing/outgoing inspection use them; the outgoing panoramas have simulated damage.
 
@@ -137,6 +137,37 @@ Measures, per project and per contractor:
 - a breakdown by trade
 
 Excel export is under Reports.
+
+## Trust accounting (Admin → Trust accounts)
+
+AVA runs the agency's three bank accounts next to its ledger: the **trust account**, the **deposit trust** (one interest-bearing investment per tenant) and the **business account**.
+
+- **Trust trial balance:** proves to the rand that trust cash equals what is owed to owners plus fees, insurance and contractors not yet paid out. The deposit trust is checked the same way, against deposits plus interest owed to tenants.
+- **Bank feeds:**
+  - every day the feed brings in the bank's lines and matches them to the cashbook;
+  - rent paid with an `AVA00012` reference is allocated by itself;
+  - you can also import OFX or CSV statements from any SA bank.
+  - Without bank API keys (*Settings → Trust accounting & banking*) the feed is simulated.
+- **Reconciliation:** each month, explain every bank line: rent from a tenant, bank charges (the business account refunds trust), or an unidentified receipt (to suspense, allocated later). Then sign off and **lock the month**. Locked months can't change; corrections are **journals** in an open month, with a reason, and they must balance.
+- **Payment batches:** money only leaves trust through a batch.
+  - Owner payouts are queued automatically.
+  - *Prepare fee transfer* moves AVA fees and PM commission to the business account, and pays the insurer and contractors.
+  - Each batch is prepared, then authorised (optionally by a second person), then released.
+  - Every batch produces a bank file for online banking.
+- **Debit orders:**
+  - tenants set up a DebiCheck mandate under *Pay rent* and approve it in their banking app;
+  - AVA collects the amount due on the debit day through Netcash (batch file included);
+  - unpaids go straight to arrears with the bank's reason.
+- **Deposits:** each deposit gets its own investment account, opened automatically. Interest is credited monthly and refunded with the deposit.
+- **Year-end:** closing the financial year (default: February) locks every month and keeps the trial balance for the auditor (Fidelity Fund certificate).
+- **Demo:**
+  - a year of payouts and fee transfers;
+  - every month up to two months ago reconciled and locked;
+  - the March 2025 – February 2026 year closed;
+  - nine tenants on debit order, one with an unpaid;
+  - last month open, with an R186 bank charge and an unidentified R2 500 to explain.
+
+Before going live, connect the real FNB feed and Netcash keys, check the Netcash batch-file layout against their current spec, and map the payout bank file in your online banking. Account numbers in the demo are made up.
 
 ## Money – how the numbers work
 

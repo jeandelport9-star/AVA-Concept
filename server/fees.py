@@ -56,7 +56,15 @@ DEFAULTS = {
     "payfast_passphrase": "",
     "payfast_sandbox": True,
     "public_url": "",
-    "trust_bank": "FNB Trust Account 62xxxxxxx · Branch 250655",
+    "trust_bank": "FNB Trust Account 62845123001 · Branch 250655",
+    # trust accounting
+    "fy_end_month": 2,                  # financial year ends in February (most SA agencies)
+    "require_second_authoriser": False, # two-person rule: whoever prepares a payment batch may not authorise it
+    "deposit_bank": "FNB 3PIM",         # deposits invested per tenant (third-party investment manager)
+    "fnb_client_id": "",                # live bank feed credentials (empty = simulated feed)
+    "fnb_client_secret": "",
+    "netcash_service_key": "",          # Netcash debit order service key (empty = simulated collections)
+    "netcash_vendor_key": "",
 }
 
 

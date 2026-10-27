@@ -279,4 +279,82 @@ d = ok(pm.get("/api/dashboard"))
 assert not any(x["kind"] in ("maintenance", "approval") for x in d["tasks"]), "repair to-dos hidden"
 ok(admin.post("/api/autopilot/run"))
 print("✓ maintenance module off: repair & marketplace API closed, agent points to Fixit, inbox has no repair to-dos, rest of AVA works")
+
+# ---- 7. trust accounting: cashbooks, bank feed, reconciliation, locking, journals, batches, debit orders ----------
+from datetime import date as _d, timedelta as _td  # noqa: E402
+from server import trust as _tr  # noqa: E402
+def balanced():
+    tb = ok(admin.get("/api/trust/trial-balance"))
+    assert tb["trust"]["balanced"] and tb["deposit"]["balanced"], (tb["trust"]["difference"], tb["deposit"]["difference"], tb["trust"]["lines"])
+    return tb
+ov = ok(admin.get("/api/trust"))
+assert {b["code"] for b in ov["books"]} == {"trust", "deposit", "business"}
+balanced()
+ok(pm.get("/api/trust"), 403)
+last = (_d.today().replace(day=1) - _td(days=1)).isoformat()[:7]
+R = ok(admin.get(f"/api/trust/recon/trust/{last}"))
+assert not R["can_sign"] and len(R["unexplained"]) >= 2, "two bank lines to explain"
+ok(admin.post(f"/api/trust/periods/{last}/lock"), 400)                          # can't lock an unreconciled month
+for l in R["unexplained"]:
+    if l["amount"] < 0:
+        ok(admin.post(f"/api/trust/lines/{l['id']}/resolve", json={"action": "bank_charges"}))
+    else:
+        ok(admin.post(f"/api/trust/lines/{l['id']}/resolve", json={"action": "suspense", "note": "No reference"}))
+balanced()
+ok(admin.post("/api/trust/feed/trust"))                                          # business refund of the charges clears
+R = ok(admin.post(f"/api/trust/recon/trust/{last}"))
+assert R["reconciled"], R
+for code in ("deposit", "business"):
+    if ok(admin.get(f"/api/trust/recon/{code}/{last}"))["can_sign"]:
+        ok(admin.post(f"/api/trust/recon/{code}/{last}"))
+ok(admin.post(f"/api/trust/periods/{last}/lock"))
+lease_any = _db0.val("SELECT id FROM leases WHERE status='active' LIMIT 1")
+ok(admin.post("/api/trust/journals", json={"date": last + "-15", "reason": "Fix last month", "lines": [
+    {"account": "owner", "property_id": 1, "amount": -100}, {"account": "control", "kind": "ava_fees", "amount": 100}]}), 400)   # locked month
+ok(admin.post("/api/trust/journals", json={"reason": "Unbalanced", "lines": [
+    {"account": "owner", "property_id": 1, "amount": -100}, {"account": "control", "kind": "ava_fees", "amount": 90}]}), 400)
+ok(admin.post("/api/trust/journals", json={"reason": "Missed admin fee on new lease", "lines": [
+    {"account": "owner", "property_id": 2, "amount": -500}, {"account": "control", "kind": "ava_fees", "amount": 500}]}))
+balanced()
+sus = _db0.val("SELECT id FROM ledger WHERE account='control' AND kind='suspense' AND amount>0 ORDER BY id DESC LIMIT 1")
+ok(admin.post(f"/api/trust/suspense/{sus}/allocate", json={"lease_id": lease_any}))   # the unidentified R2 500 was rent
+balanced()
+# owner payouts → batch → authorise → release (with a bank file); then the fee transfer to the business account
+ok(pm.post("/api/money/payouts/run", json={"period": last}))
+bs = [b for b in ok(admin.get("/api/trust/batches")) if b["kind"] == "owner_payout" and b["status"] == "draft"]
+assert bs, "payouts queued in a batch"
+B = ok(admin.post(f"/api/trust/batches/{bs[0]['id']}/authorise"))
+csvf = ok(admin.get(f"/api/trust/batches/{B['id']}/bank-file")).text
+assert "Recipient name" in csvf and "TOTAL" in csvf
+before = ok(admin.get("/api/trust/trial-balance"))["trust"]["cash"]
+ok(admin.post(f"/api/trust/batches/{B['id']}/release"))
+assert ok(admin.get("/api/trust/trial-balance"))["trust"]["cash"] == before - B["total"]
+balanced()
+biz = ok(admin.get("/api/trust/trial-balance"))["business"]["cash"]
+F = ok(admin.post("/api/trust/batches/fee-transfer"))
+ok(admin.post(f"/api/trust/batches/{F['id']}/authorise")); ok(admin.post(f"/api/trust/batches/{F['id']}/release"))
+assert ok(admin.get("/api/trust/trial-balance"))["business"]["cash"] > biz
+balanced()
+# debit order: a tenant signs a DebiCheck mandate, approves it, and rent is collected on the debit day
+ten = client("johan@example.com")
+lj = _db0.q1("SELECT * FROM leases WHERE tenant_id=(SELECT id FROM users WHERE email='johan@example.com') AND status='active'")
+ok(ten.post("/api/me/debit-order", json={"holder": "J Botha", "bank": "Capitec", "account_no": "1234567890", "consent": 1}), 200)
+assert ok(ten.get("/api/me/debit-order"))["mandate"]["debicheck"] == "pending"
+assert ok(ten.post("/api/me/debit-order/approve"))["mandate"]["debicheck"] == "approved"
+_db0.ins("ledger", account="tenant", kind="rent_charge", amount=lj["rent"], date=_d.today().isoformat(), period=_d.today().isoformat()[:7], lease_id=lj["id"], property_id=lj["property_id"], description="Rent (test)")
+due_day = _d.today().replace(day=min(lj["due_day"], 28))
+ok(admin.post("/api/trust/debit-orders/run", json={"date": due_day.isoformat()}))
+D = ok(admin.get("/api/trust/debit-orders"))
+assert any(i["status"] == "paid" and i["lease_id"] == lj["id"] for r in D["runs"] for i in r["items"]), "rent collected by debit order"
+assert "\tTwoDay\t" in ok(admin.get(f"/api/trust/debit-orders/runs/{D['runs'][0]['id']}/file")).text
+balanced()
+# bank statement import (OFX) – a rent payment with the AVA reference is allocated by itself
+ofx = f"<OFX><STMTTRN><TRNTYPE>CREDIT<DTPOSTED>{_d.today().strftime('%Y%m%d')}<TRNAMT>1234.00<FITID>T1<NAME>AVA{lj['id']:05d} EFT</STMTTRN></OFX>"
+r = ok(admin.post("/api/trust/import/trust", files=[("file", ("stmt.ofx", ofx.encode(), "text/plain"))]))
+assert r["allocated"] == 1, r
+balanced()
+assert ok(admin.get("/api/trust/deposits")) and ok(admin.get("/api/trust/periods"))["year_ends"]
+ok(admin.post(f"/api/trust/periods/{ok(admin.get('/api/trust/periods'))['year_ends'][0]['start_period']}/unlock"), 400)   # closed year stays closed
+assert ok(client("emgee@example.co.za").get("/api/me/bank-account"))["account"]["account"].startswith("••••")
+print("✓ trust: balanced trial balance, bank feed + OFX import, reconcile & lock, journals, suspense, payout & fee batches, DebiCheck debit orders, year-end")
 print("ALL GOOD")

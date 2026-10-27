@@ -952,6 +952,8 @@ async def payouts_run(request: Request, u=Depends(role(*STAFF))):
     per = b.get("period") or (date.today().replace(day=1) - timedelta(days=1)).isoformat()[:7]
     ids = b.get("property_ids") or [x["property_id"] for x in payouts(per, u)["rows"] if not x["paid"]]
     res = [x for x in (sv.payout_run(int(pid), per) for pid in ids if int(pid) in prop_ids(u)) if x]
+    from . import trust
+    trust.queue_owner_payouts(u)      # the money leaves the trust account when the payment batch is released
     if u["role"] == "pm":
         sv.close_tasks(f"payout:{u['id']}:{per}")
     return {"period": per, "results": res}
@@ -1896,10 +1898,12 @@ async def user_update(uid: int, request: Request, u=Depends(role("admin"))):
 @r.get("/settings")
 def settings_get(u=Depends(role("admin", "pm"))):
     s = fees.all_settings()
+    secret = lambda k: "key" in k or "passphrase" in k or "secret" in k
     if u["role"] != "admin":
-        s = {k: v for k, v in s.items() if "key" not in k and "passphrase" not in k}
-    elif s.get("anthropic_api_key"):
-        s["anthropic_api_key"] = "••••" + s["anthropic_api_key"][-4:]
+        s = {k: v for k, v in s.items() if not secret(k)}
+    else:   # secrets never travel back to the browser in full
+        for k in [k for k in s if secret(k) and k != "payfast_merchant_key" and s[k]]:
+            s[k] = "••••" + str(s[k])[-4:]
     return s
 
 
@@ -2068,3 +2072,269 @@ async def review_reply(rid: int, request: Request, u=Depends(role("contractor"))
     b = await body(request)
     db.upd("reviews", rid, reply=(b.get("reply") or "").strip()[:600])
     return {"ok": True}
+
+
+# =================================================================== trust accounting
+from . import trust  # noqa: E402
+
+ADMIN = role("admin")
+
+
+@r.get("/trust")
+def trust_overview(u=Depends(ADMIN)):
+    trust.ensure_books()
+    trust.sync()
+    return trust.overview()
+
+
+@r.get("/trust/trial-balance")
+def trust_tb(as_at: str = "", u=Depends(ADMIN)):
+    return trust.trial_balance(as_at or None)
+
+
+@r.get("/trust/cashbook/{code}")
+def trust_cashbook(code: str, period: str = "", u=Depends(ADMIN)):
+    trust.book(code)
+    per = period or date.today().isoformat()[:7]
+    opening = trust.cash(code, (date.fromisoformat(per + "-01") - timedelta(days=1)).isoformat())
+    tx = db.q("""SELECT t.*, l.date bank_date FROM cashbook_tx t LEFT JOIN bank_lines l ON l.id=t.bank_line_id
+                 WHERE t.cashbook=? AND substr(t.date,1,7)=? ORDER BY t.date, t.id""", code, per)
+    lines = db.q("SELECT * FROM bank_lines WHERE cashbook=? AND substr(date,1,7)=? ORDER BY date, id", code, per)
+    return {"book": trust.book(code), "period": per, "opening": opening, "closing": trust.cash(code, tx[-1]["date"] if tx else None) if tx else opening,
+            "tx": tx, "bank_lines": lines, "locked": trust.locked(per)}
+
+
+@r.post("/trust/feed/{code}")
+def trust_feed(code: str, u=Depends(ADMIN)):
+    return trust.feed(code)
+
+
+@r.post("/trust/import/{code}")
+async def trust_import(code: str, request: Request, u=Depends(ADMIN)):
+    b = await body(request)
+    f = (b["_files"].get("file") or [None])[0]
+    if not f:
+        raise HTTPException(400, "Choose a bank statement file (OFX or CSV)")
+    return trust.import_statement(code, await f.read(), f.filename)
+
+
+@r.post("/trust/lines/{lid}/resolve")
+async def trust_resolve(lid: int, request: Request, u=Depends(ADMIN)):
+    b = await body(request)
+    return trust.resolve_line(lid, b.get("action"), u, b.get("lease_id"), b.get("note") or "")
+
+
+@r.post("/trust/lines/{lid}/match/{tid}")
+def trust_match(lid: int, tid: int, u=Depends(ADMIN)):
+    l = db.q1("SELECT * FROM bank_lines WHERE id=? AND status='unmatched'", lid)
+    t = db.q1("SELECT * FROM cashbook_tx WHERE id=? AND bank_line_id IS NULL", tid)
+    if not l or not t or l["cashbook"] != t["cashbook"] or abs(l["amount"] - t["amount"]) >= 1:
+        raise HTTPException(400, "Only an unmatched line and transaction with the same amount can be matched")
+    trust.match(lid, tid)
+    return {"ok": True}
+
+
+@r.post("/trust/suspense/{lid}/allocate")
+async def trust_suspense(lid: int, request: Request, u=Depends(ADMIN)):
+    b = await body(request)
+    trust.allocate_suspense(lid, b.get("lease_id"), u)
+    return {"ok": True}
+
+
+@r.get("/trust/recon/{code}/{per}")
+def trust_recon(code: str, per: str, u=Depends(ADMIN)):
+    return trust.recon(code, per)
+
+
+@r.post("/trust/recon/{code}/{per}")
+def trust_recon_sign(code: str, per: str, u=Depends(ADMIN)):
+    return trust.sign_recon(code, per, u)
+
+
+@r.get("/trust/periods")
+def trust_periods(u=Depends(ADMIN)):
+    first = db.val("SELECT MIN(date) FROM cashbook_tx") or db.today()
+    out, m = [], date.fromisoformat(first[:7] + "-01")
+    while m.isoformat()[:7] <= date.today().isoformat()[:7]:
+        per = m.isoformat()[:7]
+        out.append({"period": per, "locked": trust.locked(per),
+                    "reconciled": {c: bool(db.val("SELECT 1 FROM recons WHERE cashbook=? AND period=?", c, per)) for c in trust.BOOKS},
+                    "activity": {c: trust.has_activity(c, per) for c in trust.BOOKS}})
+        m = (m + timedelta(days=32)).replace(day=1)
+    fy_m = int(fees.S("fy_end_month") or 2)
+    t = date.today()
+    last_fy = t.year if t.month > fy_m else t.year - 1
+    return {"periods": out[::-1], "year_ends": db.q("SELECT id, fy, start_period, end_period, created_at FROM year_ends ORDER BY fy DESC"),
+            "fy_end_month": fy_m, "closable": [y for y in (last_fy, last_fy - 1) if not db.val("SELECT 1 FROM year_ends WHERE fy=?", str(y))
+                                               and trust.fy_bounds(y)[1] >= (out[-1]["period"] if out else "9999")]}
+
+
+@r.post("/trust/periods/{per}/lock")
+def trust_lock(per: str, u=Depends(ADMIN)):
+    trust.lock_period(per, u)
+    return {"ok": True}
+
+
+@r.post("/trust/periods/{per}/unlock")
+def trust_unlock(per: str, u=Depends(ADMIN)):
+    trust.unlock_period(per, u)
+    return {"ok": True}
+
+
+@r.post("/trust/year-end/{fy}")
+def trust_year_end(fy: int, u=Depends(ADMIN)):
+    return trust.close_year(fy, u)
+
+
+@r.get("/trust/year-end/{fy}")
+def trust_year_end_get(fy: str, u=Depends(ADMIN)):
+    y = db.q1("SELECT * FROM year_ends WHERE fy=?", fy)
+    if not y:
+        raise HTTPException(404)
+    y["snapshot"] = json.loads(y["snapshot"])
+    return y
+
+
+@r.get("/trust/journals")
+def trust_journals(u=Depends(ADMIN)):
+    js = db.q("SELECT j.*, u.name by_name FROM journals j LEFT JOIN users u ON u.id=j.by_user ORDER BY j.id DESC LIMIT 100")
+    for j in js:
+        j["lines"] = db.q("SELECT g.*, p.title ptitle FROM ledger g LEFT JOIN properties p ON p.id=g.property_id WHERE journal_id=?", j["id"])
+    return {"journals": js, "controls": trust.CONTROLS,
+            "properties": db.q("SELECT p.id, p.title, (SELECT id FROM leases l WHERE l.property_id=p.id ORDER BY (status='active') DESC, id DESC LIMIT 1) lease_id FROM properties p WHERE kind='rental' ORDER BY title")}
+
+
+@r.post("/trust/journals")
+async def trust_journal_post(request: Request, u=Depends(ADMIN)):
+    b = await body(request)
+    return {"id": trust.journal(b.get("date") or db.today(), b.get("reason"), b.get("lines") or [], u)}
+
+
+@r.get("/trust/batches")
+def trust_batches(u=Depends(ADMIN)):
+    return db.q("SELECT * FROM batches ORDER BY id DESC LIMIT 60")
+
+
+@r.get("/trust/batches/{bid}")
+def trust_batch(bid: int, u=Depends(ADMIN)):
+    return trust.batch_full(bid)
+
+
+@r.post("/trust/batches/fee-transfer")
+def trust_fee_transfer(u=Depends(ADMIN)):
+    bid = trust.create_fee_transfer(u)
+    if not bid:
+        raise HTTPException(400, "No fees or payables are waiting to be paid out")
+    return trust.batch_full(bid)
+
+
+@r.post("/trust/batches/{bid}/authorise")
+def trust_authorise(bid: int, u=Depends(ADMIN)):
+    return trust.authorise(bid, u)
+
+
+@r.post("/trust/batches/{bid}/release")
+def trust_release(bid: int, u=Depends(ADMIN)):
+    return trust.release(bid, u)
+
+
+@r.get("/trust/batches/{bid}/bank-file")
+def trust_bank_file(bid: int, u=Depends(ADMIN)):
+    b = trust.batch_full(bid)
+    return Response(trust.bank_file(bid), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{b["ref"]}.csv"'})
+
+
+@r.get("/trust/deposits")
+def trust_deposits(u=Depends(ADMIN)):
+    rows = db.q("""SELECT a.*, l.status lease_status, p.title, u.name tenant FROM deposit_accounts a JOIN leases l ON l.id=a.lease_id
+                   JOIN properties p ON p.id=l.property_id JOIN users u ON u.id=l.tenant_id ORDER BY a.status, p.title""")
+    for a in rows:
+        a["balance"] = sv.balance("deposit", a["lease_id"])
+        a["interest"] = sv.balance("deposit", a["lease_id"], kinds=["deposit_interest"])
+    return rows
+
+
+@r.get("/trust/debit-orders")
+def trust_debits(u=Depends(ADMIN)):
+    ms = db.q("""SELECT m.*, p.title, u.name tenant, l.rent FROM mandates m JOIN leases l ON l.id=m.lease_id JOIN properties p ON p.id=l.property_id
+                 JOIN users u ON u.id=m.tenant_id WHERE m.status='active' ORDER BY p.title""")
+    runs = db.q("SELECT id, ref, action_date, status, total, count, processed_at FROM debit_runs ORDER BY id DESC LIMIT 24")
+    for x in runs:
+        x["items"] = db.q("SELECT i.*, p.title FROM debit_items i JOIN leases l ON l.id=i.lease_id JOIN properties p ON p.id=l.property_id WHERE run_id=?", x["id"])
+    return {"mandates": [{**trust.mandate_view(m), "title": m["title"], "tenant": m["tenant"], "rent": m["rent"]} for m in ms], "runs": runs,
+            "netcash": bool(fees.S("netcash_service_key"))}
+
+
+@r.post("/trust/debit-orders/run")
+async def trust_debit_run(request: Request, u=Depends(ADMIN)):
+    b = await body(request)
+    rid = trust.debit_run(b.get("date") or None)
+    if not rid:
+        raise HTTPException(400, "No approved debit orders fall on that day")
+    return {"id": rid}
+
+
+@r.get("/trust/debit-orders/runs/{rid}/file")
+def trust_debit_file(rid: int, u=Depends(ADMIN)):
+    x = db.q1("SELECT * FROM debit_runs WHERE id=?", rid)
+    return Response(x["file"] or "", media_type="text/plain", headers={"Content-Disposition": f'attachment; filename="{x["ref"]}-netcash.txt"'})
+
+
+# ---- the tenant's own debit order, and payout bank details for owners and contractors
+def my_lease(u):
+    return db.q1("SELECT * FROM leases WHERE tenant_id=? AND status IN ('active','awaiting_signature') ORDER BY id DESC LIMIT 1", u["id"])
+
+
+@r.get("/me/debit-order")
+def my_debit(u=Depends(role("tenant"))):
+    l = my_lease(u)
+    m = db.q1("SELECT * FROM mandates WHERE lease_id=? AND status='active' ORDER BY id DESC LIMIT 1", l["id"]) if l else None
+    return {"mandate": trust.mandate_view(m), "banks": list(trust.BANKS), "due_day": l["due_day"] if l else None, "rent": l["rent"] if l else None,
+            "simulated": not fees.S("netcash_service_key")}
+
+
+@r.post("/me/debit-order")
+async def my_debit_set(request: Request, u=Depends(role("tenant"))):
+    b = await body(request)
+    l = my_lease(u)
+    if not l:
+        raise HTTPException(400, "No active lease")
+    if not b.get("consent"):
+        raise HTTPException(400, "Please accept the debit order mandate")
+    trust.create_mandate(l["id"], u, b.get("holder") or u["name"], b.get("bank"), b.get("account_no"), b.get("account_type") or "cheque", b.get("debit_day"))
+    return my_debit(u)
+
+
+@r.post("/me/debit-order/approve")
+def my_debit_approve(u=Depends(role("tenant"))):
+    """DebiCheck approval happens in the tenant's banking app; in simulated mode this stands in for it."""
+    if fees.S("netcash_service_key"):
+        raise HTTPException(400, "Approve the mandate in your banking app")
+    l = my_lease(u)
+    m = db.q1("SELECT * FROM mandates WHERE lease_id=? AND status='active' ORDER BY id DESC LIMIT 1", l["id"]) if l else None
+    if not m:
+        raise HTTPException(404)
+    trust.approve_mandate(m["id"])
+    return my_debit(u)
+
+
+@r.delete("/me/debit-order")
+def my_debit_cancel(u=Depends(role("tenant"))):
+    l = my_lease(u)
+    if l:
+        db.exe("UPDATE mandates SET status='cancelled', cancelled_at=? WHERE lease_id=? AND status='active'", db.now(), l["id"])
+    return my_debit(u)
+
+
+@r.get("/me/bank-account")
+def my_bank(u=Depends(role("landlord", "contractor", "pm"))):
+    a = trust.bank_of(u["id"])
+    return {"account": ({**{k: a[k] for k in ("holder", "bank", "branch_code", "account_type", "verified")}, "account": trust.masked(a["account_no"])} if a else None),
+            "banks": list(trust.BANKS)}
+
+
+@r.post("/me/bank-account")
+async def my_bank_set(request: Request, u=Depends(role("landlord", "contractor", "pm"))):
+    b = await body(request)
+    trust.set_bank(u["id"], b.get("holder") or u["name"], b.get("bank"), b.get("account_no"), b.get("account_type") or "cheque")
+    return my_bank(u)

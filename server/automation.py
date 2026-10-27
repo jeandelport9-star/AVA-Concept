@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import date, datetime, timedelta
 
-from . import ai, db, fees, services as sv
+from . import trust, ai, db, fees, services as sv
 
 
 def tick(today=None):
@@ -54,8 +54,9 @@ def tick(today=None):
         per = t.isoformat()[:7]
         held = sv.balance("deposit", l["id"])
         if held > 0 and not db.val("SELECT 1 FROM ledger WHERE lease_id=? AND kind='deposit_interest' AND period=?", l["id"], per):
-            sv.post("deposit", "deposit_interest", round(held * fees.S("deposit_interest_pct") / 1200, 2), l["property_id"], l["id"], "Interest on deposit", t.isoformat(), per)
-            out["interest"] += 1
+            trust.open_deposit_account(l["id"])      # each deposit has its own investment account
+            if trust.post_interest(l["id"], per, t.isoformat()):
+                out["interest"] += 1
     if fees.on("maintenance"):   # repairs run in Fixit while the module is off
         # quotes past their deadline -> shortlist and send to the landlord
         for tk in db.q("SELECT * FROM tickets WHERE status='quoting' AND quote_deadline<=?", datetime.combine(t, datetime.now().time()).isoformat(timespec="minutes")):
@@ -122,7 +123,17 @@ def tick(today=None):
                 if sv.task(None, None, "_sub", "", dedupe=key):
                     sv.notify(c["user_id"], "Your AVA listing expires soon" if days > 0 else "Your AVA listing has expired",
                               f"Renew for R{fees.S('contractor_listing_fee')}/month to keep receiving repair requests within {fees.S('quote_radius_km'):g} km.", "#/app", "subscription")
-    db.set_setting("last_tick", datetime.now().isoformat(timespec="seconds"))
+    # trust accounting: mirror today's money into the cashbooks, collect debit orders, pull the bank feeds
+    trust.ensure_books()
+    trust.sync()
+    if trust.debit_run(t.isoformat()):
+        out["debit_orders"] = out.get("debit_orders", 0) + 1
+    trust.queue_owner_payouts()
+    for code in trust.BOOKS:
+        if trust.book(code)["feed"] == "simulated":
+            r = trust.feed(code)
+            out["bank_lines"] = out.get("bank_lines", 0) + r["new_lines"]
+        db.set_setting("last_tick", datetime.now().isoformat(timespec="seconds"))
     return out
 
 

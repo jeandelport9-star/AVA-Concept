@@ -115,7 +115,7 @@ def user(email, name, role, **kw):
 
 
 PW = None
-DEMO_VERSION = 9   # bump when the demo data changes; run.py rebuilds older demo databases
+DEMO_VERSION = 10   # bump when the demo data changes; run.py rebuilds older demo databases
 
 PRETORIA = [
     # title, type, suburb, city, lat, lng, beds, baths, park, m2, rent, features
@@ -833,6 +833,11 @@ def run(reset=False):
     lu = db.q1("SELECT * FROM users WHERE id=?", tenants[1])
     for line in ("What do I owe?", "Status of my repair"):
         agent.respond(lu, line, {"session": "t1"})
+    # trust accounting: a year of payouts, fee transfers, bank feed, reconciliations, locked months, debit orders
+    from . import trust
+    behaviour = {leases[pi]: beh for pi, _, _, _, beh in lease_plan if pi in leases}
+    tb = trust.bootstrap_demo(admin, behaviour)
+    print(f"  trust: cash R{tb['trust']['cash']:,.0f} = liabilities R{tb['trust']['liabilities']:,.0f} · deposits R{tb['deposit']['cash']:,.0f}")
     db.set_setting("demo_seeded", db.now())
     db.set_setting("demo_version", DEMO_VERSION)
     res = automation.tick()

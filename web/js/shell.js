@@ -12,7 +12,7 @@ const NAV = {
        ['inbox', 'Messages', 'chat'], ['saved', 'Saved & alerts', 'heart'], ['learn', 'Know your rights', 'learn']]]],
   contractor: [['', [['', 'My jobs', 'tool'], ['jobs', 'Browse jobs', 'map'], ['snags', 'Snags', 'clip'], ['profile', 'Profile', 'users']]]],
   admin: [['AVA', [['', 'Command centre', 'bolt'], ['ai', 'AI & virtual agent', 'spark'], ['users', 'Users', 'users'], ['reviews', 'Reviews', 'star'], ['settings', 'Settings & fees', 'cog']]],
-       ['Portfolio', [['properties', 'Properties', 'building'], ['leasing', 'Leasing', 'key'], ['leases', 'Leases', 'doc'], ['money', 'Money', 'money'], ['earnings', 'Revenue', 'chart']]],
+       ['Portfolio', [['properties', 'Properties', 'building'], ['leasing', 'Leasing', 'key'], ['leases', 'Leases', 'doc'], ['money', 'Money', 'money'], ['trust', 'Trust accounts', 'shield'], ['earnings', 'Revenue', 'chart']]],
        ['Operations', [['maintenance', 'Maintenance', 'tool'], ['inspections', 'Inspections', 'pano'], ['snags', 'Snag lists', 'clip'], ['contractors', 'Contractors', 'users'], ['inbox', 'Inbox', 'chat'], ['reports', 'Reports', 'excel']]]],
 };
 const BOTTOM = {

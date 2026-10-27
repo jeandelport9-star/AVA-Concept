@@ -4,6 +4,7 @@ import './public.js';
 import './office.js';
 import './work.js';
 import './inspect.js';
+import './trust.js';
 import { toggleAgent } from './agent.js';
 document.getElementById('fab').onclick = toggleAgent;
 

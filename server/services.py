@@ -41,6 +41,8 @@ def period(d=None):
 
 def post(account, kind, amount, property_id, lease_id=None, description="", d=None, per=None, **kw):
     d = d or db.today()
+    from . import trust
+    trust.check_open(per + "-01" if per else d)      # locked months can't change – correct them with a journal
     return db.ins("ledger", account=account, kind=kind, amount=db.rands(amount), property_id=property_id, lease_id=lease_id,
                   description=description, date=d, period=per or d[:7], **kw)
 
@@ -631,7 +633,7 @@ def refund_deposit(iid, u):
         x = min(dep["arrears"], dep["held"] - dep["deductions"])
         if x > 0:
             post("deposit", "deposit_deduction", -x, pid, lid, "Arrears settled from deposit")
-            post("tenant", "payment", -x, pid, lid, "Arrears settled from deposit")
+            post("tenant", "payment", -x, pid, lid, "Arrears settled from deposit", ref="from-deposit")
             post("owner", "rent_received", x, pid, lid, "Arrears recovered from deposit")
     post("deposit", "deposit_refund", -dep["refund"], pid, lid, "Deposit + interest refunded to tenant")
     db.upd("leases", lid, status="ended", ended_at=db.now())

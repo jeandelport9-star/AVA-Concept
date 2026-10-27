@@ -119,6 +119,50 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS agent_log (
   id INTEGER PRIMARY KEY, session TEXT, user_id INTEGER, property_id INTEGER, role TEXT, text TEXT, reply TEXT,
   intent TEXT, handoff INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- ===== trust accounting: the agency's real bank accounts =====
+CREATE TABLE IF NOT EXISTS cashbooks (
+  id INTEGER PRIMARY KEY, code TEXT UNIQUE, name TEXT, bank TEXT, branch_code TEXT, account_no TEXT,
+  opening_balance REAL DEFAULT 0, opening_date TEXT, feed TEXT DEFAULT 'simulated', last_feed_at TEXT);
+CREATE TABLE IF NOT EXISTS cashbook_tx (
+  id INTEGER PRIMARY KEY, cashbook TEXT NOT NULL, date TEXT NOT NULL, amount REAL NOT NULL, description TEXT, reference TEXT,
+  source TEXT, ledger_id INTEGER, payment_id INTEGER, batch_id INTEGER, journal_id INTEGER, property_id INTEGER, lease_id INTEGER,
+  bank_line_id INTEGER, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS bank_lines (
+  id INTEGER PRIMARY KEY, cashbook TEXT NOT NULL, date TEXT NOT NULL, amount REAL NOT NULL, description TEXT, reference TEXT,
+  balance REAL, source TEXT, fingerprint TEXT UNIQUE, matched_tx INTEGER, status TEXT DEFAULT 'unmatched', note TEXT,
+  imported_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS recons (
+  id INTEGER PRIMARY KEY, cashbook TEXT, period TEXT, statement_balance REAL, cashbook_balance REAL, difference REAL,
+  outstanding TEXT, by_user INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(cashbook, period));
+CREATE TABLE IF NOT EXISTS periods (period TEXT PRIMARY KEY, locked_at TEXT, locked_by INTEGER);
+CREATE TABLE IF NOT EXISTS year_ends (
+  id INTEGER PRIMARY KEY, fy TEXT UNIQUE, start_period TEXT, end_period TEXT, snapshot TEXT, by_user INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS journals (
+  id INTEGER PRIMARY KEY, ref TEXT, date TEXT, reason TEXT, by_user INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS bank_accounts (
+  id INTEGER PRIMARY KEY, user_id INTEGER UNIQUE, holder TEXT, bank TEXT, branch_code TEXT, account_no TEXT, account_type TEXT,
+  verified INTEGER DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS batches (
+  id INTEGER PRIMARY KEY, ref TEXT, kind TEXT, period TEXT, cashbook TEXT DEFAULT 'trust', status TEXT DEFAULT 'draft', total REAL DEFAULT 0,
+  created_by INTEGER, authorised_by INTEGER, authorised_at TEXT, released_by INTEGER, released_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS batch_lines (
+  id INTEGER PRIMARY KEY, batch_id INTEGER, payee TEXT, payee_user INTEGER, control TEXT, ledger_id INTEGER, property_id INTEGER,
+  amount REAL, reference TEXT, bank TEXT, branch_code TEXT, account_no TEXT, account_type TEXT, note TEXT);
+CREATE TABLE IF NOT EXISTS mandates (
+  id INTEGER PRIMARY KEY, lease_id INTEGER, tenant_id INTEGER, ref TEXT, holder TEXT, bank TEXT, branch_code TEXT, account_no TEXT,
+  account_type TEXT, debit_day INTEGER, max_amount REAL, debicheck TEXT DEFAULT 'pending', status TEXT DEFAULT 'active',
+  sim_result TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, approved_at TEXT, cancelled_at TEXT);
+CREATE TABLE IF NOT EXISTS debit_runs (
+  id INTEGER PRIMARY KEY, ref TEXT, action_date TEXT, status TEXT DEFAULT 'submitted', total REAL, count INTEGER, file TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP, processed_at TEXT);
+CREATE TABLE IF NOT EXISTS debit_items (
+  id INTEGER PRIMARY KEY, run_id INTEGER, mandate_id INTEGER, lease_id INTEGER, amount REAL, status TEXT DEFAULT 'pending',
+  reason TEXT, payment_id INTEGER);
+CREATE TABLE IF NOT EXISTS deposit_accounts (
+  id INTEGER PRIMARY KEY, lease_id INTEGER UNIQUE, bank TEXT, account_no TEXT, rate REAL, opened_at TEXT, status TEXT DEFAULT 'open',
+  closed_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_ctx_book ON cashbook_tx(cashbook, date);
+CREATE INDEX IF NOT EXISTS ix_ctx_ledger ON cashbook_tx(ledger_id);
 CREATE INDEX IF NOT EXISTS ix_ledger_lease ON ledger(lease_id, account);
 CREATE INDEX IF NOT EXISTS ix_ledger_prop ON ledger(property_id, account, period);
 CREATE INDEX IF NOT EXISTS ix_tickets_prop ON tickets(property_id, status);
@@ -159,7 +203,7 @@ MIGRATIONS = [("properties", "erf_size", "REAL"), ("properties", "published_at",
               ("reviews", "quality", "INTEGER"), ("reviews", "punctuality", "INTEGER"), ("reviews", "price_score", "INTEGER"),
               ("reviews", "communication", "INTEGER"), ("reviews", "reply", "TEXT"), ("reviews", "author_role", "TEXT"),
               ("quotes", "distance_km", "REAL"), ("quotes", "kind", "TEXT DEFAULT 'quote'"), ("ticket_events", "audio", "TEXT"),
-              ("tickets", "paid_contractor", "INTEGER DEFAULT 0"), ("tickets", "auto_closed", "INTEGER DEFAULT 0"), ("tickets", "radius_km", "REAL"), ("quotes", "applied", "INTEGER DEFAULT 0")]
+              ("tickets", "paid_contractor", "INTEGER DEFAULT 0"), ("tickets", "auto_closed", "INTEGER DEFAULT 0"), ("tickets", "radius_km", "REAL"), ("quotes", "applied", "INTEGER DEFAULT 0"), ("ledger", "journal_id", "INTEGER")]
 
 
 JSON_COLS = {"features", "docs", "trades", "areas", "photos", "after_photos", "pin", "photos_before", "photos_after"}
