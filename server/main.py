@@ -6,11 +6,13 @@ from fastapi.staticfiles import StaticFiles
 
 from . import automation, db
 from .api import r
+from .api_growth import g
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
 app = FastAPI(title="AVA", docs_url="/api/docs")
 app.include_router(r)
+app.include_router(g)
 
 
 MAINTENANCE_API = ("/api/tickets", "/api/pros", "/api/contractor/", "/api/reports/maintenance")

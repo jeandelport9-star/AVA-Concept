@@ -145,8 +145,21 @@ def comparable_rent(prop):
         est = (est + e2) / 2 if est else e2
     if est is None:
         return None
+    cs = prop.get("condition_score")
+    if cs:
+        adj = CONDITION_ADJ.get(int(round(cs)), 0)
+        if adj:
+            est = est * (1 + adj / 100)
+        basis.append(f"Condition C{int(round(cs))} ({CONDITION_WORD.get(int(round(cs)), '')}): {adj:+d}%")
     est = round(est / 50) * 50
-    return {"estimate": est, "low": round(est * 0.93 / 50) * 50, "high": round(est * 1.07 / 50) * 50, "basis": basis}
+    return {"estimate": est, "low": round(est * 0.93 / 50) * 50, "high": round(est * 1.07 / 50) * 50, "basis": basis,
+            "condition": int(round(cs)) if cs else None}
+
+
+# condition & finish score, C1 (new / renovated) … C6 (needs major work) – the scale valuers use (Fannie Mae / FoxyAI)
+CONDITION_WORD = {1: "new or fully renovated", 2: "excellent, modern finishes", 3: "well kept, average finishes",
+                  4: "dated, normal wear", 5: "worn, needs repairs", 6: "needs major work"}
+CONDITION_ADJ = {1: 6, 2: 3, 3: 0, 4: -4, 5: -8, 6: -12}     # % on the comparable rent
 
 
 def listing_copy(p):
@@ -323,6 +336,37 @@ def suggest_reply(thread_msgs, facts=None):
 
 
 # ---------------------------------------------------------------- optional LLM
+def ask_vision(image_paths, prompt):
+    """Claude looks at photos (local upload paths) and answers in JSON. None when no API key or on any failure."""
+    if fees.S("ai_provider") != "anthropic" or not fees.S("anthropic_api_key"):
+        return None
+    try:
+        import base64
+        import httpx
+        content = []
+        for path in image_paths[:8]:
+            f = db.UPLOADS / path.removeprefix("/uploads/")
+            if not f.exists():
+                continue
+            ext = f.suffix.lower().lstrip(".")
+            mt = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp", "gif": "image/gif"}.get(ext)
+            if mt:
+                content.append({"type": "image", "source": {"type": "base64", "media_type": mt, "data": base64.b64encode(f.read_bytes()).decode()}})
+        if not content:
+            return None
+        content.append({"type": "text", "text": prompt})
+        r = httpx.post("https://api.anthropic.com/v1/messages", timeout=60,
+                       headers={"x-api-key": fees.S("anthropic_api_key"), "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                       json={"model": fees.S("anthropic_model"), "max_tokens": 600, "messages": [{"role": "user", "content": content}]})
+        r.raise_for_status()
+        txt = "".join(b.get("text", "") for b in r.json().get("content", []))
+        m = re.search(r"\{.*\}", txt, re.S)
+        return json.loads(m.group(0)) if m else None
+    except Exception:
+        return None
+
+
+
 def ask_llm(prompt, json_out=False):
     if fees.S("ai_provider") != "anthropic" or not fees.S("anthropic_api_key"):
         return None

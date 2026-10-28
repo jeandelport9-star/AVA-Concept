@@ -169,6 +169,60 @@ AVA runs the agency's three bank accounts next to its ledger: the **trust accoun
 
 Before going live, connect the real FNB feed and Netcash keys, check the Netcash batch-file layout against their current spec, and map the payout bank file in your online banking. Account numbers in the demo are made up.
 
+## FICA & POPIA (staff: FICA & POPIA · everyone: Identity & privacy)
+
+- **FICA identity check.** Tenants and owners enter their SA ID or passport and upload an ID copy, a selfie and proof of address. AVA checks these itself:
+  - the ID number's check digit, date of birth and citizenship;
+  - age (18 or older);
+  - proof of address is under 3 months old;
+  - the same ID or phone number on another account.
+- **Provider checks.** Home Affairs, the selfie face-match and sanctions/PEP screening go to the verification provider. They are simulated until a provider key is set.
+- **Result.** Each check is *verified*, *needs a look* or *failed*.
+  - A PM approves or rejects a check with a written reason, which the FICA register keeps.
+  - A lease can't be approved until the tenant is verified, unless the PM records why (setting `fica_required`).
+  - Owner payouts can be held until the owner is verified (setting `fica_hold_payouts`).
+- **POPIA consent register.** Each consent is recorded per purpose (service, credit check, FICA, marketing, prospecting), with when, how and which notice version. People change their consents themselves.
+- **Data-subject requests.** People can:
+  - download all their data as JSON;
+  - ask for a correction;
+  - object to marketing, which takes effect immediately;
+  - ask for deletion.
+
+  The admin answers within 30 days, with reminders. Deletion is refused while a lease is active. Otherwise the profile, contact details, documents and selfie are removed, and lease, payment and FICA records are kept for 5 years.
+- **Public notice.** The privacy notice is at `#/privacy-notice`.
+
+## Growth & marketing (PM: Growth & marketing)
+
+- **Owner prospecting.** Searching a suburb pulls the erven from LOOM: owner, owner type, last sale, estimated value and likely rent. Owners who live elsewhere, trusts and companies are flagged as likely investors.
+  - Revealing a contact uses one LOOM credit.
+  - Prospects move through a pipeline: new → contacted → report sent → interested → signed.
+  - "Do not contact" is recorded as a POPIA objection.
+  - Demo data is used until a LOOM login is set.
+- **"What your home could earn" report.** A branded public page at `#/r/<token>` shows:
+  - the likely rent, adjusted for condition, with comparable homes;
+  - a traditional agent's fee against AVA's;
+  - the monthly payout;
+  - the PM's profile;
+  - a "call me" form that records consent and creates a PM task.
+
+  The PM sees when the report is opened. Owners can also make their own report at `#/earn`.
+- **Condition & finish score (C1–C6).** The score adjusts the rent check: +6%, +3%, 0, −4%, −8% or −12%.
+  - With an Anthropic key, Claude scores the home from its photos.
+  - Without one, the score comes from the last inspection, or the PM sets it by hand.
+  - Capturing the condition belongs in Inspektr; AVA uses the score.
+- **Property24 & Private Property syndication.** A live, ready listing is sent with one tick.
+  - Each portal reads AVA's feed: `/api/feeds/property24.xml?key=…` and `/api/feeds/privateproperty.xml?key=…`.
+  - A listing is withdrawn everywhere when it is let or taken off the market.
+  - Portal enquiries land in the leads inbox, where a viewing can be booked.
+  - Views and enquiries are simulated until the agency IDs and feed keys are set.
+- **Email & SMS campaigns.** Merge fields such as `{first_name}`, `{property}`, `{rent}` and `{brochure}` are filled in per person.
+  - *Service* messages go to current tenants and owners.
+  - *Marketing* goes only to people who opted in, always with an unsubscribe link or "reply STOP".
+  - Preview shows who is left out and why.
+  - Sending uses SMTP and BulkSMS when those are set up; otherwise messages are recorded as simulated sends.
+- **Automatic greetings.** Birthday messages use the date of birth from the ID number. On a lease anniversary the tenant gets a message and the PM gets a check-in task.
+- **PM brochure.** A printable public profile at `#/pm/<id>`: bio, homes, occupancy, on-time rent, fees and live listings.
+
 ## Money – how the numbers work
 
 - **Whole rands:** every amount is rounded off (half up) when it is recorded. Ledgers, statements and payouts therefore always add up to the rand.
@@ -225,9 +279,11 @@ To publish to the stores, wrap `web/` with **Capacitor** (`npx cap add android i
 - Host the API (any VPS or Azure).
 - Move SQLite to Postgres or Supabase. The SQL is plain, and AVA's existing app already uses Supabase.
 - Connect real **TPN / XDS** credit and rental-history checks. `credit_check` in `server/api.py` is a stub.
-- Add SMS/WhatsApp and email next to in-app notifications (`services.notify`).
+- Add WhatsApp next to in-app notifications. Email and SMS go out through SMTP and BulkSMS once set in Settings.
+- Sign up with a FICA verification provider (Home Affairs, face match, sanctions/PEP), and register the Information Officer with the Information Regulator.
+- Get a LOOM API account, plus Property24 and Private Property agency feed IDs.
 - Integrate the trust account bank.
-- Do the PPRA / FFC paperwork and a POPIA privacy notice.
+- Do the PPRA / FFC paperwork. The POPIA privacy notice at `#/privacy-notice` needs a legal review.
 - Set up off-site backups of `data/`.
 - Optional: plug Site Inspect's SAM 3 auto-detection into the inspection rooms. The 360 data model is the same.
 
@@ -239,6 +295,8 @@ server/main.py      FastAPI app                 server/api.py   all HTTP routes 
 server/services.py  leases, ledger & payouts, maintenance flow, inspections, snags
 server/automation.py  Autopilot (idempotent; runs every 10 min and on demand)
 server/ai.py        triage, scoring, pricing, risk, anomalies    server/agent.py  virtual agent
+server/compliance.py FICA checks, POPIA consents & requests   server/prospect.py  prospecting, earnings reports, condition score
+server/syndicate.py Property24 / Private Property feeds & leads  server/crm.py  campaigns, greetings   server/api_growth.py  their routes
 server/fees.py      AVA pricing model           server/marketplace.py  maintenance companies, 10 km matching, ratings           server/seed.py  demo portfolio
 web/                front end (plain HTML/CSS/JS, no build step) – js/pano.js is Site Inspect's 360 viewer
 demo/panos/         BLK360 G2 panoramas used by the demo

@@ -237,7 +237,15 @@ def queue_owner_payouts(u=None):
                    WHERE g.account='owner' AND g.kind='payout' AND NOT EXISTS (SELECT 1 FROM batch_lines l WHERE l.ledger_id=g.id)
                    ORDER BY g.period, g.id""")
     made = set()
+    from . import compliance, fees
+    hold = fees.S("fica_hold_payouts")
     for g in rows:
+        if hold and compliance.status(g["landlord_id"]) != "verified":
+            from .services import task
+            pm = db.val("SELECT pm_id FROM properties WHERE id=?", g["property_id"])
+            task(pm, g["property_id"], "fica", f"Payout held: owner of {g['title']} is not FICA-verified",
+                 "The owner must complete the identity check in the app before the payout can be released.", "#/app/compliance", 1, None, f"fica-hold:{g['landlord_id']}")
+            continue
         bid = _draft("owner_payout", g["period"], u)
         ll = db.q1("SELECT id, name, company FROM users WHERE id=?", g["landlord_id"])
         ba = bank_of(g["landlord_id"]) or {}

@@ -63,7 +63,7 @@ const P = {
   alert: 'M12 3L2 20h20zm0 6v5m0 3h.01', star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z', upload: 'M12 16V4m-5 5l5-5 5 5M4 16v4h16v-4',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zm0 0v14m6-12v14', phone: 'M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z',
   video: 'M3 7h12v10H3zm12 3l6-3v10l-6-3', hard: 'M4 18h16M6 18v-4a6 6 0 0 1 12 0v4M12 8V5m-3 1l1 2m5-2l-1 2', list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
-  shield: 'M12 3l8 3v6c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V6z', learn: 'M3 8l9-4 9 4-9 4zm4 2v5c3 2 7 2 10 0v-5', eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+  shield: 'M12 3l8 3v6c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V6z', trend: 'M3 17l6-6 4 4 8-8M15 7h6v6', idcard: 'M3 5h18v14H3zM6 10a2 2 0 1 0 4 0 2 2 0 0 0-4 0m-1 6c.6-1.4 1.7-2 3-2s2.4.6 3 2M14 9h4m-4 3h4m-4 3h2', send: 'M21 3L10 14M21 3l-7 18-4-7-7-4z', learn: 'M3 8l9-4 9 4-9 4zm4 2v5c3 2 7 2 10 0v-5', eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
   print: 'M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z', excel: 'M4 4h16v16H4zM9 4v16M4 9h16M4 14h16', refresh: 'M20 11a8 8 0 0 0-14.9-3M4 4v4h4m-4 5a8 8 0 0 0 14.9 3M20 20v-4h-4',
 };
 export const icon = (n, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n] || P.grid}"/></svg>`;

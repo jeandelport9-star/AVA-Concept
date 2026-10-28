@@ -11,7 +11,7 @@ from urllib.parse import quote_plus
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import ai, automation, db, fees, services as sv
+from . import ai, automation, compliance, db, fees, services as sv
 from .auth import (can_prop, check_pw, hash_pw, in_list, new_session, optional_user, prop_ids, public_user, role, user)
 
 r = APIRouter(prefix="/api")
@@ -94,6 +94,10 @@ async def register(request: Request, response: Response):
                sub_until=(date.today() + timedelta(days=fees.S("free_trial_days"))).isoformat())
         for a in db.q("SELECT id FROM users WHERE role='admin'"):
             sv.notify(a["id"], "Contractor awaiting approval", b.get("company") or b.get("name"), "#/app/contractors", "admin")
+    ip = request.client.host if request.client else None
+    compliance.record_consent(uid, "service", True, "Sign-up (privacy notice accepted)", email=email, ip=ip)
+    if b.get("marketing") not in (None, "", False, "0", "false"):
+        compliance.record_consent(uid, "marketing", True, "Sign-up form", email=email, ip=ip)
     tok = new_session(uid)
     response.set_cookie("ava_session", tok, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 60)
     return {"user": public_user(db.q1("SELECT * FROM users WHERE id=?", uid)), "token": tok}
@@ -127,7 +131,7 @@ def MAINT_TASKS():
 
 
 def features():
-    return {"maintenance": fees.on("maintenance"), "fixit_url": fees.S("fixit_url") or ""}
+    return {"maintenance": fees.on("maintenance"), "fixit_url": fees.S("fixit_url") or "", "fica_required": bool(fees.S("fica_required"))}
 
 
 @r.get("/me")
@@ -135,13 +139,13 @@ def me(u=Depends(optional_user)):
     if not u:
         return {"user": None, "features": features()}
     unread = db.val("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read=0", u["id"])
-    return {"user": public_user(u), "unread": unread, "features": features()}
+    return {"user": {**public_user(u), "bio": u.get("bio"), "fica": compliance.status(u["id"])}, "unread": unread, "features": features()}
 
 
 @r.put("/me")
 async def me_update(request: Request, u=Depends(user)):
     b = await body(request)
-    kw = {k: b[k] for k in ("name", "phone", "company") if k in b}
+    kw = {k: b[k] for k in ("name", "phone", "company", "bio") if k in b}
     if b.get("password"):
         if not check_pw(b.get("current_password") or "", u["pw_hash"]):
             raise HTTPException(400, "Current password is wrong")
@@ -343,7 +347,8 @@ def applications(u=Depends(user), property_id: int = 0):
     if u["role"] == "tenant":
         return db.q("SELECT a.*, p.title, p.rent FROM applications a JOIN properties p ON p.id=a.property_id WHERE a.user_id=? ORDER BY a.id DESC", u["id"])
     ids = prop_ids(u)
-    sql = f"SELECT a.*, p.title, p.rent, p.suburb FROM applications a JOIN properties p ON p.id=a.property_id WHERE a.property_id IN {in_list(ids)}"
+    sql = (f"SELECT a.*, p.title, p.rent, p.suburb, (SELECT k.status FROM kyc_checks k WHERE k.user_id=a.user_id ORDER BY k.id DESC LIMIT 1) fica "
+           f"FROM applications a JOIN properties p ON p.id=a.property_id WHERE a.property_id IN {in_list(ids)}")
     if property_id:
         sql += f" AND a.property_id={int(property_id)}"
     return db.q(sql + " ORDER BY CASE a.status WHEN 'screening' THEN 0 WHEN 'shortlisted' THEN 1 WHEN 'submitted' THEN 2 ELSE 3 END, a.score DESC")
@@ -392,6 +397,13 @@ async def application_approve(aid: int, request: Request, u=Depends(role(*OFFICE
     a = db.q1("SELECT * FROM applications WHERE id=?", aid)
     can_prop(u, a["property_id"], True)
     b = await body(request)
+    if fees.S("fica_required") and compliance.status(a["user_id"]) != "verified":
+        note = (b.get("fica_override") or "").strip()
+        if len(note) < 10:
+            st = compliance.status(a["user_id"])
+            raise HTTPException(400, f"{a['name']}'s FICA identity check is {'not done yet' if st == 'none' else st}. Ask them to verify in the app "
+                                     "(Profile → Identity check), or record why you are approving without it.")
+        sv.log(sv.prop(a["property_id"])["pm_id"], a["property_id"], f"Approved {a['name']} without a verified FICA check: {note}", f"#/app/applications", u["name"])
     start = b.get("start_date") or a["move_in"] or (date.today() + timedelta(days=14)).isoformat()
     lid = sv.make_lease(a["property_id"], a["user_id"], start, int(b.get("months") or 12), num(b.get("rent"), int),
                         aid, float(b.get("escalation") or 8))
@@ -587,6 +599,9 @@ def property_get(pid: int, u=Depends(user)):
     p["owner_balance"] = sv.balance("owner", property_id=pid)
     p["snag_metrics"] = sv.snag_metrics([pid]) if p["kind"] == "project" or db.val("SELECT 1 FROM snags WHERE property_id=?", pid) else None
     p["price"] = ai.comparable_rent(p)
+    if u["role"] in OFFICE:
+        from . import syndicate
+        p["portals"] = syndicate.status(pid)
     p["fees"] = fees.landlord_monthly(p["rent"] or 0, p["landlord_id"], p["pm_id"], p["insured"]) if p["rent"] else None
     p["documents"] = db.q("SELECT * FROM documents WHERE property_id=? ORDER BY id DESC", pid)
     return p
@@ -634,6 +649,8 @@ def publish(pid: int, u=Depends(role(*OFFICE))):
 def unpublish(pid: int, u=Depends(role(*OFFICE))):
     can_prop(u, pid, True)
     db.upd("properties", pid, listing_status="off")
+    from . import syndicate
+    syndicate.withdraw_stale()
     return {"ok": True}
 
 
@@ -748,6 +765,7 @@ def lease_checklist(l):
     """'No steps missed': the compliance trail for this tenancy."""
     lid, pid = l["id"], l["property_id"]
     steps = [
+        ("Tenant identity verified (FICA)", compliance.status(l["tenant_id"]) == "verified"),
         ("Application vetted (affordability, credit, TPN)", bool(l["application_id"] and db.val("SELECT credit_score FROM applications WHERE id=?", l["application_id"]))),
         ("Lease signed by tenant", bool(l["tenant_sig"])),
         ("Lease signed by landlord / agent", bool(l["landlord_sig"])),
@@ -1898,7 +1916,7 @@ async def user_update(uid: int, request: Request, u=Depends(role("admin"))):
 @r.get("/settings")
 def settings_get(u=Depends(role("admin", "pm"))):
     s = fees.all_settings()
-    secret = lambda k: "key" in k or "passphrase" in k or "secret" in k
+    secret = lambda k: "key" in k or "passphrase" in k or "secret" in k or "password" in k
     if u["role"] != "admin":
         s = {k: v for k, v in s.items() if not secret(k)}
     else:   # secrets never travel back to the browser in full

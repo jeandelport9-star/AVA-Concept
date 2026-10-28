@@ -2,6 +2,7 @@
 import { $, $$, act, ago, api, cchip, confirmBox, esc, feat, fdate, fdt, formData, formObj, fslot, go, icon, initials, INSP, LOGO, modal, period, pickFiles, pill, plural, qs, R, R2, route, signModal, ST, stars, state, toast, today, upload } from './core.js';
 import { page, moreMenu } from './shell.js';
 import { openTour } from './public.js';
+import { kycNudge } from './compliance.js';
 
 const A = { auth: true };
 const isStaff = () => ['pm', 'admin'].includes(state.user.role);
@@ -92,6 +93,7 @@ async function landlordHome() {
     <div class="card flush"><div class="card-head"><h3>Your properties</h3></div>${propTable(d.properties)}</div>
     <div class="card flush"><div class="card-head"><h3>Statements</h3></div><div class="list">${d.statements.map(s => `<a class="li" href="#/app/statement/${s.property_id}/${s.period}">${icon('doc')}<span class="grow">${period(s.period)} · ${esc(d.properties.find(p => p.id === s.property_id)?.title || '')}</span><b class="num">${R2(s.payout)}</b></a>`).join('') || '<div class="muted">No payouts yet.</div>'}</div></div>`;
   bindRows(pg);
+  pg.insertAdjacentHTML('afterbegin', kycNudge());
 }
 
 export function barChart(rows, la, lb) {
@@ -110,6 +112,7 @@ async function tenantHome() {
     pg.innerHTML = `<div class="card stack"><h2>Find your next home</h2><p class="muted">Browse homes with 360° tours, book a viewing and apply from your phone.</p><a class="btn cta" href="#/search">Search homes</a></div>
       ${d.applications.length ? `<div class="card flush"><div class="card-head"><h3>Your applications</h3></div><div class="list">${d.applications.map(a => `<div class="li"><span class="grow"><b>${esc(a.title)}</b><span class="small muted"> · score ${a.score ?? '…'}</span></span>${pill(a.status)}</div>`).join('')}</div></div>` : ''}
       ${d.viewings.length ? `<div class="card flush"><div class="card-head"><h3>Upcoming viewings</h3></div><div class="list">${d.viewings.map(v => `<a class="li" href="#/p/${v.property_id}"><span class="grow"><b>${esc(v.title)}</b></span><span class="small">${fslot(v.slot)}</span></a>`).join('')}</div></div>` : ''}`;
+    pg.insertAdjacentHTML('afterbegin', kycNudge());
     return;
   }
   const owe = d.balance > 0;
@@ -125,6 +128,7 @@ async function tenantHome() {
     <div class="grid2"><div class="card stack tight"><h3>${esc(l.title)}</h3><p class="small muted">${esc(l.address)}</p><div class="costs"><div><span>Lease</span><span>${fdate(l.start_date)} – ${fdate(l.end_date)}</span></div><div><span>Deposit held (with interest)</span><span class="num">${R2(d.deposit_held)}</span></div></div><a class="btn sm" href="#/app/lease/${l.id}">View lease</a></div>
       <div class="card stack tight"><h3>Your portfolio manager</h3>${d.pm ? `<div class="row"><span class="avatar">${initials(d.pm.name)}</span><div><b>${esc(d.pm.name)}</b><div class="small muted">${esc(d.pm.phone || '')}</div></div></div><a class="btn sm" href="#/app/inbox">Message</a>` : ''}</div></div>
     ${d.inspections.length ? `<div class="card flush"><div class="card-head"><h3>Inspections</h3></div><div class="list">${d.inspections.map(i => `<a class="li" href="#/app/inspection/${i.id}">${icon('pano')}<span class="grow">${INSP[i.type]} · ${fdate(i.date)}</span>${pill(i.status)}</a>`).join('')}</div></div>` : ''}`;
+  pg.insertAdjacentHTML('afterbegin', kycNudge());
 }
 
 route('/app/pay', async (_, q) => {
@@ -290,13 +294,14 @@ route('/app/property/:id', async ({ id }, q) => {
       </div><div class="stack">
         ${p.fees ? `<div class="card stack tight"><h3>Owner economics</h3><div class="costs">${p.fees.lines.map(l => `<div><span>${esc(l.label)}</span><span class="num">−${R(l.amount)}</span></div>`).join('')}<div class="tot"><span>Net to owner / month</span><span class="num">${R(p.fees.net)}</span></div></div><span class="small muted">AVA costs ${p.fees.pct_of_rent}% of rent vs ~11.5% with a traditional agent.</span></div>` : ''}
         ${p.price ? `<div class="card stack tight"><h3><span class="ai">${icon('spark')} Rent check</span></h3><p><b>${R(p.price.low)} – ${R(p.price.high)}</b> <span class="muted small">suggested</span></p><p class="small muted">${p.price.basis.map(esc).join('<br>')}</p>${p.rent ? `<span class="pill ${p.rent > p.price.high ? 'warn' : p.rent < p.price.low ? 'info' : 'ok'}">${p.rent > p.price.high ? 'Above market – may take longer to let' : p.rent < p.price.low ? 'Below market' : 'In line with the market'}</span>` : ''}</div>` : ''}
+        ${p.kind === 'rental' && isOffice() ? '<div id="condcard"></div>' : ''}
         ${feat('maintenance') ? `<div class="card flush"><div class="card-head"><h3>Open repairs</h3><a class="btn sm" href="#/app/maintenance/new?property=${p.id}">${icon('plus')}</a></div><div class="list">${p.tickets.filter(t => !['closed', 'cancelled'].includes(t.status)).map(t => `<a class="li" href="#/app/ticket/${t.id}"><span class="grow"><span class="title">${esc(t.title)}</span><span class="small muted">${t.ref} · <span class="prio-${t.priority}">${t.priority}</span></span></span>${pill(t.status)}</a>`).join('') || '<div class="muted small">None</div>'}</div></div>` : ''}
       </div></div>`,
     listing: () => `<div class="grid2" style="align-items:start"><div class="card stack">${propForm(p)}<div class="row"><button class="btn" id="aic">${icon('spark')}Write listing with AI</button><span class="spacer"></span><button class="btn primary" id="psave">Save</button></div>
         <label class="field"><span>Headline</span><input class="input" id="headline" value="${esc(p.headline || '')}"></label><label class="field"><span>Description</span><textarea class="input" id="desc" rows="7">${esc(p.description || '')}</textarea></label></div>
       <div class="stack"><div class="card stack"><div class="row"><h3 class="grow">Publish</h3>${pill(p.listing_status)}</div>
           <p class="small muted">Publishing puts it on the AVA portal, alerts renters whose saved area matches, and opens viewing slots.</p>
-          <div class="row">${p.listing_status === 'live' ? `<button class="btn" id="unpub">Take off market</button>` : `<button class="btn cta" id="pub">${icon('upload')}Publish listing</button>`}</div></div>
+          <div class="row">${p.listing_status === 'live' ? `<button class="btn" id="unpub">Take off market</button>` : `<button class="btn cta" id="pub">${icon('upload')}Publish listing</button>`}</div><div id="portals"></div></div>
         <div class="card stack"><div class="row"><h3 class="grow">Photos</h3><button class="btn sm" id="addph">${icon('camera')}Add photos</button></div>
           <div class="thumbs">${p.media.filter(m => m.kind === 'photo').map(m => `<div style="position:relative"><img src="${esc(m.url)}" data-zoom="${esc(m.url)}" alt=""><button class="iconbtn" data-delm="${m.id}" style="position:absolute;top:-8px;right:-8px;width:24px;height:24px;background:#fff;box-shadow:var(--sh)">${icon('x')}</button></div>`).join('') || '<span class="muted small">No photos yet</span>'}</div></div>
         <div class="card stack"><div class="row"><h3 class="grow">360° virtual tour</h3><button class="btn sm" id="addpano">${icon('pano')}Add 360° photo</button></div>
@@ -321,6 +326,8 @@ route('/app/property/:id', async ({ id }, q) => {
     $('#newinsp') && ($('#newinsp').onclick = () => newInspection(p));
     $('#recpay') && ($('#recpay').onclick = () => recordPayment(active, reload));
     $('#adddoc') && ($('#adddoc').onclick = async () => { const f = await pickFiles({ accept: '*/*' }); if (f.length) { await upload(`/api/properties/${id}/documents`, f); reload(); } });
+    if (k === 'overview' && $('#condcard')) { const { conditionCard } = await import('./growth.js'); conditionCard($('#condcard'), p, reload); }
+    if (k === 'listing' && $('#portals')) { const { portalsCard } = await import('./growth.js'); portalsCard($('#portals'), p); }
     if (k === 'snags') { const { snagBoard } = await import('./inspect.js'); snagBoard($('#snaghost'), p.id); }
     if (k === 'listing') {
       const m = bindPropForm(p);
@@ -379,7 +386,7 @@ route('/app/leasing', async (_, q) => {
   const T = {
     applications: () => `<div class="card flush"><div class="tablewrap"><table class="t"><tr><th>Applicant</th><th>Property</th><th class="num">Income</th><th class="num">Rent : income</th><th>AVA score</th><th>Status</th><th></th></tr>
       ${apps.map(a => { const r = a.rent / ((a.income || 0) + (a.other_income || 0) || 1); return `<tr><td><b>${esc(a.name)}</b><div class="tiny muted">${esc(a.employer || '')} · ${ago(a.created_at)}</div></td><td>${esc(a.title)}</td><td class="num">${R(a.income)}</td>
-        <td class="num"><span class="pill ${r <= .3 ? 'ok' : r <= .35 ? 'warn' : 'bad'}">${Math.round(r * 100)}%</span></td><td><b>${a.score ?? '…'}</b>/100</td><td>${pill(a.status)}</td><td><button class="btn sm" data-app="${a.id}">Review</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">No applications.</td></tr>'}</table></div></div>`,
+        <td class="num"><span class="pill ${r <= .3 ? 'ok' : r <= .35 ? 'warn' : 'bad'}">${Math.round(r * 100)}%</span></td><td><b>${a.score ?? '…'}</b>/100</td><td>${pill(a.status)} ${a.fica === 'verified' ? `<span class="pill ok" title="FICA identity check">${icon('idcard')}ID ✓</span>` : `<span class="pill ${a.fica === 'failed' ? 'bad' : 'warn'}" title="FICA identity check">${icon('idcard')}${a.fica === 'review' ? 'ID: look' : a.fica === 'failed' ? 'ID failed' : 'No ID check'}</span>`}</td><td><button class="btn sm" data-app="${a.id}">Review</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">No applications.</td></tr>'}</table></div></div>`,
     viewings: () => `<div class="card flush list">${views.map(v => `<div class="li"><span class="pill ${v.slot < today() ? '' : 'info'}">${fslot(v.slot)}</span><span class="grow"><b>${esc(v.name || '')}</b> <span class="small muted">${esc(v.phone || '')} · ${esc(v.title)}</span></span>${pill(v.status)}
       ${v.status === 'confirmed' ? `<button class="btn sm" data-v="${v.id}" data-s="done">Done</button><button class="btn sm ghost" data-v="${v.id}" data-s="no_show">No-show</button>` : ''}</div>`).join('') || '<div class="muted">No viewings.</div>'}</div>`,
     listings: () => `<div class="card flush">${propTable([...live, ...vacant])}</div>`,
@@ -395,17 +402,19 @@ function reviewApp(a) {
   const docs = a.docs || [];
   const m = modal({ title: `${a.name} – ${a.title}`, cls: 'wide', body: `<div class="grid2"><div class="stack tight">
       <div class="costs"><div><span>Employer</span><b>${esc(a.employer || '–')}</b></div><div><span>Gross income</span><span class="num">${R(a.income)}${a.other_income ? ' + ' + R(a.other_income) : ''}</span></div><div><span>Rent</span><span class="num">${R(a.rent)}</span></div>
-        <div><span>Occupants / pets</span><span>${a.occupants} / ${a.pets ? 'yes' : 'no'}</span></div><div><span>Move-in</span><span>${fdate(a.move_in)}</span></div><div><span>Credit score</span><b>${a.credit_score ?? 'not checked'}</b></div><div><span>Rental history</span><span>${esc(a.rental_history || '–')}</span></div></div>
+        <div><span>Occupants / pets</span><span>${a.occupants} / ${a.pets ? 'yes' : 'no'}</span></div><div><span>Move-in</span><span>${fdate(a.move_in)}</span></div><div><span>Credit score</span><b>${a.credit_score ?? 'not checked'}</b></div><div><span>Identity (FICA)</span><span>${a.fica === 'verified' ? '<b style="color:var(--ok)">Verified</b>' : a.fica ? esc(a.fica) : 'not done yet'}</span></div><div><span>Rental history</span><span>${esc(a.rental_history || '–')}</span></div></div>
       ${a.message ? `<p class="card tint small">"${esc(a.message)}"</p>` : ''}
       <div class="row wrap">${docs.map(d => `<a class="btn sm" target="_blank" href="${esc(d.url)}">${icon('doc')}${esc(d.kind.replace('_', ' '))}</a>`).join('') || '<span class="muted small">No documents</span>'}</div></div>
     <div class="stack"><div class="card tint stack tight"><div class="row"><b class="grow">AVA score</b><b style="font:600 30px var(--f-head)">${a.score ?? '…'}</b></div><div class="meter"><i style="width:${a.score || 0}%;background:${a.score >= 70 ? 'var(--ok)' : a.score >= 45 ? 'var(--warn)' : 'var(--bad)'}"></i></div>
       <div class="small">${(a.score_notes || '').split('\n').map(n => `• ${esc(n)}`).join('<br>')}</div></div>
       <button class="btn" id="cc">${icon('shield')}Run credit + TPN check</button></div></div>
+    ${state.features.fica_required && a.fica !== 'verified' && !['approved', 'declined', 'withdrawn'].includes(a.status) ? `<div class="ai-note">${icon('idcard')}<span><b>Identity not verified.</b> The applicant must complete the FICA check in the app before you approve. If you have checked their ID yourself, record how:
+      <input class="input" id="fo" placeholder="e.g. Certified ID copy and bank statement seen in the office" style="margin-top:6px"></span></div>` : ''}
     <form class="form cols" id="lf"><label class="field"><span>Lease start</span><input class="input" type="date" name="start_date" value="${a.move_in || today()}"></label><label class="field"><span>Months</span><input class="input" type="number" name="months" value="12"></label><label class="field"><span>Escalation %</span><input class="input" type="number" name="escalation" value="8" step="0.5"></label></form>`,
     foot: ['approved', 'declined', 'withdrawn'].includes(a.status) ? '' : `<button class="btn danger" id="dec">Decline</button><span class="spacer"></span><button class="btn primary" id="appr">Approve & send lease</button>` });
   $('#cc', m).onclick = async () => { const r = await act($('#cc', m), () => api.post(`/api/applications/${a.id}/credit-check`), 'Checks complete'); m.close(); reviewApp({ ...a, ...r }); };
   $('#dec', m)?.addEventListener('click', async () => { await api.put('/api/applications/' + a.id, { status: 'declined', decision_note: 'Declined after review' }); m.close(); toast('Declined – applicant notified kindly'); go('#/app/leasing?r=' + Date.now()); });
-  $('#appr', m)?.addEventListener('click', async () => { const r = await act($('#appr', m), () => api.post(`/api/applications/${a.id}/approve`, formObj($('#lf', m))), 'Approved – lease sent for e-signature'); m.close(); go('#/app/lease/' + r.lease_id); });
+  $('#appr', m)?.addEventListener('click', async () => { const r = await act($('#appr', m), () => api.post(`/api/applications/${a.id}/approve`, { ...formObj($('#lf', m)), fica_override: $('#fo', m)?.value || '' }), 'Approved – lease sent for e-signature'); m.close(); go('#/app/lease/' + r.lease_id); });
 }
 
 // ================================================================== leases
@@ -590,6 +599,20 @@ route('/app/settings', async () => {
       ${f('fnb_client_id', 'FNB bank feed – client ID', 'text')}${f('fnb_client_secret', 'FNB bank feed – secret', 'text')}${f('netcash_service_key', 'Netcash debit order service key', 'text')}${f('netcash_vendor_key', 'Netcash software vendor key', 'text')}
       ${f('deposit_bank', 'Deposit investments with', 'text')}${f('deposit_interest_pct', 'Deposit interest rate % p.a.')}${f('fy_end_month', 'Financial year ends (month 1–12)')}</div>
       <label class="check"><input type="checkbox" name="require_second_authoriser" ${s.require_second_authoriser ? 'checked' : ''}>Two-person rule: a payment batch must be authorised by someone other than the person who prepared it</label></div>` : ''}
+    ${admin ? `<div class="card stack"><h3>FICA & POPIA</h3><p class="small muted">Identity checks (Home Affairs, selfie match, sanctions/PEP) run through the verification provider; leave the key empty for simulated checks.</p><div class="form cols">
+      ${f('kyc_provider', 'Verification provider', 'text')}${f('kyc_provider_key', 'Provider API key', 'text')}${f('info_officer_name', 'Information Officer', 'text')}${f('info_officer_email', 'Information Officer email', 'text')}</div>
+      <label class="check"><input type="checkbox" name="fica_required" ${s.fica_required ? 'checked' : ''}>Tenants must pass the identity check before an application can be approved (a manager can override with a reason)</label>
+      <label class="check"><input type="checkbox" name="fica_hold_payouts" ${s.fica_hold_payouts ? 'checked' : ''}>Hold an owner's payouts until the owner is FICA-verified</label></div>
+    <div class="card stack"><h3>Growth: prospecting & portals</h3><p class="small muted">Leave the logins empty to use demo data and simulated portal listings.</p><div class="form cols">
+      ${f('loom_username', 'LOOM username', 'text')}${f('loom_password', 'LOOM password', 'password')}${f('loom_credits', 'LOOM contact credits left')}
+      ${f('p24_agency_id', 'Property24 agency ID', 'text')}${f('p24_feed_key', 'Property24 feed key', 'text')}${f('pp_agency_id', 'Private Property agency ID', 'text')}${f('pp_feed_key', 'Private Property feed key', 'text')}</div>
+      <p class="tiny muted">The portals read AVA's listing feed at <code>/api/feeds/property24.xml?key=…</code> and <code>/api/feeds/privateproperty.xml?key=…</code>.</p></div>
+    <div class="card stack"><h3>Email & SMS</h3><p class="small muted">Campaigns, birthday and lease-anniversary messages. Without these, messages are recorded in the outbox as simulated sends.</p><div class="form cols">
+      ${f('smtp_host', 'SMTP server', 'text')}${f('smtp_port', 'SMTP port')}${f('smtp_user', 'SMTP user', 'text')}${f('smtp_password', 'SMTP password', 'password')}${f('smtp_from', 'From address', 'text')}
+      ${f('sms_api_key', 'BulkSMS token ID', 'text')}${f('sms_api_secret', 'BulkSMS token secret', 'text')}
+      <label class="field"><span>Greetings go by</span><select class="input" name="greeting_channel"><option value="sms">SMS</option><option value="email" ${s.greeting_channel === 'email' ? 'selected' : ''}>Email</option></select></label></div>
+      <label class="check"><input type="checkbox" name="birthday_messages" ${s.birthday_messages ? 'checked' : ''}>Birthday wishes to tenants and owners (date of birth from the ID number)</label>
+      <label class="check"><input type="checkbox" name="anniversary_messages" ${s.anniversary_messages ? 'checked' : ''}>Lease-anniversary message to the tenant, plus a check-in task for the PM</label></div>` : ''}
     <div class="card stack"><h3>AI</h3><p class="small muted">AVA's triage, scoring, pricing and assistant work offline with rules. Add an Anthropic API key to let Claude write replies and listing copy.</p><div class="form cols"><label class="field"><span>Provider</span><select class="input" name="ai_provider"><option value="rules">Rules (offline)</option><option value="anthropic" ${s.ai_provider === 'anthropic' ? 'selected' : ''}>Anthropic Claude</option></select></label>${f('anthropic_api_key', 'API key', 'password')}${f('anthropic_model', 'Model', 'text')}</div></div>
     <div class="row"><span class="spacer"></span><button class="btn primary" id="ss">Save settings</button></div>` : ''}</form>`;
   $('#cps')?.addEventListener('click', async () => { await act($('#cps'), () => api.put('/api/me', { commission_pct: +$('#cp').value }), 'Saved'); });

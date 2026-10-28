@@ -161,6 +161,44 @@ CREATE TABLE IF NOT EXISTS debit_items (
 CREATE TABLE IF NOT EXISTS deposit_accounts (
   id INTEGER PRIMARY KEY, lease_id INTEGER UNIQUE, bank TEXT, account_no TEXT, rate REAL, opened_at TEXT, status TEXT DEFAULT 'open',
   closed_at TEXT);
+-- ===== FICA / KYC and fraud checks =====
+CREATE TABLE IF NOT EXISTS kyc_checks (
+  id INTEGER PRIMARY KEY, user_id INTEGER, context TEXT, status TEXT DEFAULT 'draft', id_type TEXT, id_number TEXT,
+  first_names TEXT, surname TEXT, dob TEXT, gender TEXT, citizenship TEXT, address TEXT, poa_date TEXT,
+  id_doc TEXT, selfie TEXT, poa_doc TEXT, checks TEXT DEFAULT '[]', risk TEXT, provider TEXT,
+  submitted_at TEXT, verified_at TEXT, reviewed_by INTEGER, review_note TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- ===== POPIA: consent register and data-subject requests =====
+CREATE TABLE IF NOT EXISTS consents (
+  id INTEGER PRIMARY KEY, user_id INTEGER, email TEXT, purpose TEXT, granted INTEGER, source TEXT, version TEXT,
+  ip TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS dsr (
+  id INTEGER PRIMARY KEY, user_id INTEGER, email TEXT, kind TEXT, detail TEXT, status TEXT DEFAULT 'open',
+  due_date TEXT, response TEXT, handled_by INTEGER, completed_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- ===== landlord prospecting and 'earn with AVA' reports =====
+CREATE TABLE IF NOT EXISTS prospects (
+  id INTEGER PRIMARY KEY, pm_id INTEGER, source TEXT, erf TEXT, address TEXT, suburb TEXT, city TEXT, province TEXT,
+  lat REAL, lng REAL, type TEXT, bedrooms REAL, bathrooms REAL, size_m2 REAL, erf_size REAL,
+  owner_name TEXT, owner_type TEXT, owner_lives_elsewhere INTEGER DEFAULT 0, last_sale_date TEXT, last_sale_price REAL,
+  est_value REAL, phone TEXT, email TEXT, contact_revealed INTEGER DEFAULT 0, status TEXT DEFAULT 'new', note TEXT,
+  do_not_contact INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS earn_reports (
+  id INTEGER PRIMARY KEY, token TEXT UNIQUE, pm_id INTEGER, prospect_id INTEGER, property_id INTEGER, data TEXT,
+  views INTEGER DEFAULT 0, last_viewed_at TEXT, lead_name TEXT, lead_phone TEXT, lead_email TEXT, lead_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- ===== listing syndication to the portals =====
+CREATE TABLE IF NOT EXISTS syndications (
+  id INTEGER PRIMARY KEY, property_id INTEGER, portal TEXT, status TEXT DEFAULT 'queued', portal_ref TEXT,
+  views INTEGER DEFAULT 0, enquiries INTEGER DEFAULT 0, error TEXT, pushed_at TEXT, updated_at TEXT, UNIQUE(property_id, portal));
+CREATE TABLE IF NOT EXISTS portal_leads (
+  id INTEGER PRIMARY KEY, property_id INTEGER, portal TEXT, name TEXT, email TEXT, phone TEXT, message TEXT,
+  status TEXT DEFAULT 'new', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- ===== CRM: campaigns, outbox =====
+CREATE TABLE IF NOT EXISTS campaigns (
+  id INTEGER PRIMARY KEY, name TEXT, kind TEXT DEFAULT 'service', channel TEXT, audience TEXT, subject TEXT, body TEXT,
+  status TEXT DEFAULT 'draft', created_by INTEGER, sent_at TEXT, counts TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS outbox (
+  id INTEGER PRIMARY KEY, campaign_id INTEGER, channel TEXT, user_id INTEGER, prospect_id INTEGER, to_addr TEXT, subject TEXT,
+  body TEXT, status TEXT DEFAULT 'queued', reason TEXT, provider_ref TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, sent_at TEXT);
 CREATE INDEX IF NOT EXISTS ix_ctx_book ON cashbook_tx(cashbook, date);
 CREATE INDEX IF NOT EXISTS ix_ctx_ledger ON cashbook_tx(ledger_id);
 CREATE INDEX IF NOT EXISTS ix_ledger_lease ON ledger(lease_id, account);
@@ -203,7 +241,7 @@ MIGRATIONS = [("properties", "erf_size", "REAL"), ("properties", "published_at",
               ("reviews", "quality", "INTEGER"), ("reviews", "punctuality", "INTEGER"), ("reviews", "price_score", "INTEGER"),
               ("reviews", "communication", "INTEGER"), ("reviews", "reply", "TEXT"), ("reviews", "author_role", "TEXT"),
               ("quotes", "distance_km", "REAL"), ("quotes", "kind", "TEXT DEFAULT 'quote'"), ("ticket_events", "audio", "TEXT"),
-              ("tickets", "paid_contractor", "INTEGER DEFAULT 0"), ("tickets", "auto_closed", "INTEGER DEFAULT 0"), ("tickets", "radius_km", "REAL"), ("quotes", "applied", "INTEGER DEFAULT 0"), ("ledger", "journal_id", "INTEGER")]
+              ("tickets", "paid_contractor", "INTEGER DEFAULT 0"), ("tickets", "auto_closed", "INTEGER DEFAULT 0"), ("tickets", "radius_km", "REAL"), ("quotes", "applied", "INTEGER DEFAULT 0"), ("ledger", "journal_id", "INTEGER"), ("users", "bio", "TEXT"), ("users", "birthday", "TEXT"), ("properties", "condition_score", "REAL"), ("properties", "condition_notes", "TEXT")]
 
 
 JSON_COLS = {"features", "docs", "trades", "areas", "photos", "after_photos", "pin", "photos_before", "photos_after"}

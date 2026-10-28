@@ -18,9 +18,9 @@ export function nav(active = '') {
 export const footer = () => `<footer class="footer"><div class="wrap grid3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
   <div class="stack tight"><a class="logo" href="#/" style="color:#fff">${LOGO}</a><p>Rent with peace of mind. One portfolio manager, hundreds of homes, nothing missed.</p></div>
   <div class="stack tight"><b style="color:#fff">Renters</b><a href="#/search">Search homes</a><a href="#/search?view=map">Search the map</a><a href="#/register">Create an account</a></div>
-  <div class="stack tight"><b style="color:#fff">Owners & agents</b><a href="#/landlords">List with AVA</a><a href="#/agents">Start your digital agency</a><a href="#/explore">Yield & bond calculator</a></div>
+  <div class="stack tight"><b style="color:#fff">Owners & agents</b><a href="#/landlords">List with AVA</a><a href="#/earn">What could my home earn?</a><a href="#/agents">Start your digital agency</a><a href="#/explore">Yield & bond calculator</a></div>
   ${feat('maintenance') ? `<div class="stack tight"><b style="color:#fff">Maintenance companies</b><a href="#/pros">Find a rated company</a><a href="#/pros/join">List your company – R250/month</a></div>` : ''}
-  <div class="stack tight small"><b style="color:#fff">Compliance</b><span>Rental Housing Act 50 of 1999 · CPA · POPIA · PPRA registered portfolio managers · deposits held in interest-bearing trust.</span></div>
+  <div class="stack tight small"><b style="color:#fff">Compliance</b><span>Rental Housing Act 50 of 1999 · CPA · POPIA · FICA · PPRA registered portfolio managers · deposits held in interest-bearing trust.</span><a href="#/privacy-notice">Privacy notice</a></div>
 </div></footer>`;
 
 const facts = p => `<div class="facts"><span>${icon('bed')}${p.bedrooms || 0}</span><span>${icon('bath')}${p.bathrooms || 0}</span>${p.parking ? `<span>${icon('car')}${p.parking}</span>` : ''}${p.size_m2 ? `<span>${icon('area')}${Math.round(p.size_m2)} m²</span>` : ''}${p.erf_size ? `<span class="hide-sm" title="Erf size">Erf ${Math.round(p.erf_size).toLocaleString('en-ZA')} m²</span>` : ''}</div>`;
@@ -374,7 +374,7 @@ route('/landlords', async () => {
       <div class="step"><h3>Approve in one tap</h3><p class="muted">${feat('maintenance') ? 'Repairs come to you with quotes from three rated companies within 10 km – compare price, rating and distance, and choose.' : 'Applications, leases, renewals and payouts come to you ready to approve – one tap and AVA does the rest.'} Emergencies under your limit are handled immediately.</p></div>
       <div class="step"><h3>Know your rights</h3><p class="muted">AVA Learn explains the Rental Housing Act, CPA and PIE Act in plain language, right where decisions are made.</p></div>
       <div class="step"><h3>Real statements</h3><p class="muted">Monthly owner statements with every rand traced: rent in, fees, repairs, payout. Exports to Excel for your tax return.</p></div></div>
-    <div class="row wrap"><a class="btn cta lg" href="#/register?role=landlord">List my property</a><a class="btn lg" href="#/explore">Run the yield numbers</a></div></div>` + footer();
+    <div class="row wrap"><a class="btn cta lg" href="#/register?role=landlord">List my property</a><a class="btn lg" href="#/earn">${icon('chart')}What could my home earn?</a><a class="btn lg" href="#/explore">Run the yield numbers</a></div></div>` + footer();
   const upd = async () => {
     const f = await api.get(`/api/fees/public?rent=${+$('#rent').value || 0}&homes=${Math.max(1, +$('#homes').value || 1)}&bedrooms=${+$('#beds').value || 1}&bathrooms=${+$('#baths').value || 1}`);
     $('#calc').innerHTML = compareBox(f, +$('#rent').value) + `<div class="costs" style="margin-top:12px">${f.landlord.lines.map(l => `<div><span>${esc(l.label)}</span><span class="num">${R(l.amount)}</span></div>`).join('')}<div class="tot"><span>Monthly management cost</span><span class="num">${R(f.landlord.total)} (${f.landlord.pct_of_rent}% of rent)</span></div>
@@ -473,7 +473,7 @@ route('/register', async (_, q) => {
     <label class="field"><span>Email</span><input class="input" type="email" name="email" required></label>
     <label class="field"><span>Password</span><input class="input" type="password" name="password" minlength="6" required></label>
     <div id="extra"></div>
-    <label class="check small"><input type="checkbox" required>I accept the terms and the POPIA privacy notice.</label><button class="btn cta lg">Create account</button></form></div></div>`;
+    <label class="check small"><input type="checkbox" required>I accept the terms and the <a href="#/privacy-notice" target="_blank">privacy notice</a>.</label><label class="check small"><input type="checkbox" name="marketing" value="1">Send me news and offers by email or SMS (optional – you can stop any time).</label><button class="btn cta lg">Create account</button></form></div></div>`;
   const extra = () => {
     const r = $('[name=role]').value;
     $('#extra').innerHTML = r === 'contractor' ? `<label class="field"><span>Company</span><input class="input" name="company" required></label><label class="field"><span>Trades (comma separated)</span><input class="input" name="trades" placeholder="Plumber, Electrician"></label><label class="field"><span>Areas</span><input class="input" name="areas" placeholder="Pretoria, Centurion"></label><p class="small muted">Maintenance companies list for R250/month (first 30 days free) and get repair requests within 10 km. <a href="#/pros/join#signup">Use the full company sign-up to set your base on the map →</a></p>`

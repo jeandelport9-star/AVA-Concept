@@ -65,6 +65,30 @@ DEFAULTS = {
     "fnb_client_secret": "",
     "netcash_service_key": "",          # Netcash debit order service key (empty = simulated collections)
     "netcash_vendor_key": "",
+    # FICA / KYC
+    "fica_required": True,              # tenants must pass the identity check before their application can be approved
+    "fica_hold_payouts": False,         # hold an owner's payout until the owner's identity is verified
+    "kyc_provider": "VerifyNow",        # Home Affairs, selfie face-match, sanctions/PEP screening
+    "kyc_provider_key": "",             # empty = simulated checks
+    # POPIA
+    "info_officer_name": "AVA Admin",   # Information Officer registered with the Information Regulator
+    "info_officer_email": "privacy@ava.co.za",
+    # prospecting (LOOM)
+    "loom_username": "",                # the agency's LOOM login (empty = demo data)
+    "loom_password": "",
+    "loom_credits": 50,                 # contact-reveal credits left on the LOOM account
+    # listing syndication
+    "p24_agency_id": "",                # Property24 agency/branch id and feed key (empty = simulated)
+    "p24_feed_key": "",
+    "pp_agency_id": "",                 # Private Property agency id and feed key (empty = simulated)
+    "pp_feed_key": "",
+    # messaging
+    "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_password": "", "smtp_from": "",
+    "sms_api_key": "",                  # BulkSMS token id / secret (empty = simulated sends)
+    "sms_api_secret": "",
+    "birthday_messages": True,
+    "anniversary_messages": True,
+    "greeting_channel": "sms",
 }
 
 

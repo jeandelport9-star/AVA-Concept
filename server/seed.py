@@ -115,7 +115,7 @@ def user(email, name, role, **kw):
 
 
 PW = None
-DEMO_VERSION = 10   # bump when the demo data changes; run.py rebuilds older demo databases
+DEMO_VERSION = 11   # bump when the demo data changes; run.py rebuilds older demo databases
 
 PRETORIA = [
     # title, type, suburb, city, lat, lng, beds, baths, park, m2, rent, features
@@ -838,6 +838,9 @@ def run(reset=False):
     behaviour = {leases[pi]: beh for pi, _, _, _, beh in lease_plan if pi in leases}
     tb = trust.bootstrap_demo(admin, behaviour)
     print(f"  trust: cash R{tb['trust']['cash']:,.0f} = liabilities R{tb['trust']['liabilities']:,.0f} · deposits R{tb['deposit']['cash']:,.0f}")
+    from . import seed_growth
+    gr = seed_growth.run(admin, thandi, pieter)
+    print(f"  growth: {gr}")
     db.set_setting("demo_seeded", db.now())
     db.set_setting("demo_version", DEMO_VERSION)
     res = automation.tick()

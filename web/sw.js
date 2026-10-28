@@ -1,6 +1,6 @@
 // Offline shell: the app opens without signal; data needs a connection.
-const C = 'ava-v4';
-const SHELL = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/core.js', '/js/public.js', '/js/office.js', '/js/work.js', '/js/market.js', '/js/inspect.js', '/js/shell.js', '/js/pano.js',
+const C = 'ava-v5';
+const SHELL = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/core.js', '/js/public.js', '/js/office.js', '/js/work.js', '/js/market.js', '/js/inspect.js', '/js/shell.js', '/js/pano.js', '/js/agent.js', '/js/trust.js', '/js/compliance.js', '/js/growth.js',
   '/vendor/leaflet/leaflet.js', '/vendor/leaflet/leaflet.css', '/img/mark.png', '/img/icon-192.png', '/manifest.webmanifest'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== C).map(x => caches.delete(x)))).then(() => self.clients.claim())); });

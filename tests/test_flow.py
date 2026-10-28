@@ -59,6 +59,16 @@ a = ok(t.post("/api/applications", data={"property_id": target["id"], "income": 
 assert a["score"] > 40, a
 app_id = a["id"]
 ok(pm.post(f"/api/applications/{app_id}/credit-check"))
+ok(pm.post(f"/api/applications/{app_id}/approve", json={"months": 12}), 400)          # FICA: identity not verified yet
+from server import compliance as _cp  # noqa: E402
+def make_id(dob="900215", seq="5123"):
+    base = dob + seq + "08"
+    return base + next(str(z) for z in range(10) if _cp.luhn_ok(base + str(z)))
+ok(t.post("/api/me/kyc", data={"first_names": "Nadia", "surname": "Newbie", "id_number": "9002155123089"}), 400)   # wrong check digit
+K = ok(t.post("/api/me/kyc", data={"first_names": "Nadia", "surname": "Newbie", "id_number": make_id(), "address": "1 Test Rd",
+                                    "poa_date": (__import__("datetime").date.today()).isoformat()},
+              files=[("id_doc", jpg()), ("selfie", jpg()), ("poa_doc", jpg())]))
+assert K["status"] == "verified", K["checks"]
 lease_id = ok(pm.post(f"/api/applications/{app_id}/approve", json={"months": 12}))["lease_id"]
 sig = "data:image/png;base64,iVBORw0KGgo="
 ok(t.post(f"/api/leases/{lease_id}/sign", json={"sig": sig}))
@@ -264,7 +274,7 @@ print("✓ payouts + statement, bank CSV matching, autopilot, AVA Assist, escala
 # ---- 6. maintenance switched off (it runs in Fixit for now) -------------------------------
 ok(admin.put("/api/settings", json={"module_maintenance": False, "fixit_url": "https://fixit.example.co.za"}))
 me = ok(t.get("/api/me"))
-assert me["features"] == {"maintenance": False, "fixit_url": "https://fixit.example.co.za"}, me["features"]
+assert {k: me["features"][k] for k in ("maintenance", "fixit_url")} == {"maintenance": False, "fixit_url": "https://fixit.example.co.za"}, me["features"]
 assert ok(anon.get("/api/me"))["features"]["maintenance"] is False
 ok(t.post("/api/tickets", data={"title": "Tap leaking"}), 404)
 ok(plumber.get("/api/contractor/issues"), 404)
@@ -357,4 +367,103 @@ assert ok(admin.get("/api/trust/deposits")) and ok(admin.get("/api/trust/periods
 ok(admin.post(f"/api/trust/periods/{ok(admin.get('/api/trust/periods'))['year_ends'][0]['start_period']}/unlock"), 400)   # closed year stays closed
 assert ok(client("emgee@example.co.za").get("/api/me/bank-account"))["account"]["account"].startswith("••••")
 print("✓ trust: balanced trial balance, bank feed + OFX import, reconcile & lock, journals, suspense, payout & fee batches, DebiCheck debit orders, year-end")
+
+# ---- 8. FICA, POPIA, prospecting, earnings reports, condition score, portals, campaigns ---------------------
+# FICA: Home Affairs mismatch → a person must look; sanctions hit → failed; duplicate ID → flagged
+f1 = TestClient(app); ok(f1.post("/api/auth/register", json={"email": "fica1@example.com", "password": "secret1", "name": "Pat Mismatch", "role": "tenant"}))
+k1 = ok(f1.post("/api/me/kyc", data={"first_names": "Pat", "surname": "Mismatch", "id_number": "8001015009087"}))
+assert k1["status"] == "review" and any(c["name"] == "Home Affairs (DHA)" and c["result"] == "fail" for c in k1["checks"])
+f2 = TestClient(app); ok(f2.post("/api/auth/register", json={"email": "fica2@example.com", "password": "secret1", "name": "Sam Watchlist", "role": "tenant"}))
+assert ok(f2.post("/api/me/kyc", data={"first_names": "Sam", "surname": "Watchlist", "id_number": make_id("850505", "0042")}))["status"] == "failed"
+f3 = TestClient(app); ok(f3.post("/api/auth/register", json={"email": "fica3@example.com", "password": "secret1", "name": "Copy Cat", "role": "tenant"}))
+k3 = ok(f3.post("/api/me/kyc", data={"first_names": "Copy", "surname": "Cat", "id_number": make_id()}))
+assert k3["status"] == "review" and any(c["name"] == "Duplicate identity" and c["result"] == "fail" for c in k3["checks"])
+ok(admin.post(f"/api/compliance/kyc/{k1['id']}/review", json={"decision": "verified", "note": ""}), 400)        # reason required
+assert ok(admin.post(f"/api/compliance/kyc/{k1['id']}/review", json={"decision": "verified", "note": "Name changed after marriage – saw the marriage certificate"}))["status"] == "verified"
+reg = ok(admin.get("/api/compliance/kyc"))
+assert reg["counts"].get("verified", 0) > 10 and reg["counts"].get("failed", 0) >= 1
+assert ok(t.get("/api/me"))["user"]["fica"] == "verified"
+# POPIA: consents, export, objection works at once, deletion refused while a lease is active, done once it's over
+ok(t.put("/api/me/consents", json={"marketing": True}))
+assert next(c for c in ok(t.get("/api/me/privacy"))["consents"] if c["purpose"] == "marketing")["granted"]
+ex = ok(t.get("/api/me/export"))
+assert ex["person"]["email"] == "newbie@example.com" and ex["identity_checks"] and ex["leases"]
+assert ok(t.post("/api/me/requests", json={"kind": "objection"}))["status"] == "done"
+assert not next(c for c in ok(t.get("/api/me/privacy"))["consents"] if c["purpose"] == "marketing")["granted"]
+ler = client("lerato@example.com")
+assert _db0.val("SELECT 1 FROM leases WHERE tenant_id=(SELECT id FROM users WHERE email='lerato@example.com') AND status='active'")
+dr = ok(ler.post("/api/me/requests", json={"kind": "deletion"}))
+assert ok(admin.post(f"/api/compliance/requests/{dr['id']}", json={"action": "delete"}))["status"] == "declined"     # lease still active
+dr2 = ok(f2.post("/api/me/requests", json={"kind": "deletion", "detail": "Remove me"}))
+assert any(r["id"] == dr2["id"] and not r["overdue"] for r in ok(admin.get("/api/compliance/requests")))
+assert ok(admin.post(f"/api/compliance/requests/{dr2['id']}", json={"action": "delete"}))["status"] == "done"
+assert _db0.q1("SELECT name, phone, active FROM users WHERE email LIKE 'deleted-%'")["active"] == 0
+ok(f2.get("/api/me/privacy"), 401)                                                                                 # signed out everywhere
+assert _db0.val("SELECT COUNT(*) FROM kyc_checks WHERE user_id=(SELECT id FROM users WHERE email LIKE 'deleted-%')") == 1   # FICA record kept
+ok(pm.get("/api/compliance/requests"), 403)
+# prospecting with LOOM data (simulated): search an area, reveal a contact (1 credit), send an earnings report
+cr0 = ok(pm.get("/api/growth/prospects"))["credits"]
+assert ok(pm.post("/api/growth/prospects/search", json={"suburb": "Menlo Park", "city": "Pretoria"}))["added"] > 0
+assert ok(pm.post("/api/growth/prospects/search", json={"suburb": "menlo park", "city": "Pretoria"}))["added"] == 0   # same erven, no duplicates
+P = ok(pm.get("/api/growth/prospects?suburb=Menlo Park"))
+pr = next(x for x in P["rows"] if x["status"] == "new")
+assert pr["phone"] is None
+pr = ok(pm.post(f"/api/growth/prospects/{pr['id']}/reveal"))
+assert pr["phone"] and ok(pm.get("/api/growth/prospects"))["credits"] == cr0 - 1
+ok(client("pieter@ava.co.za").post(f"/api/growth/prospects/{pr['id']}/reveal"), 404)                              # another PM's prospect
+rep = ok(pm.post("/api/growth/reports", json={"prospect_id": pr["id"]}))
+assert rep["rent"]["estimate"] > 0 and rep["agent"]["saving_month"] > 0 and rep["pm"]["name"] == "Thandi Mokoena"
+pub = ok(anon.get(f"/api/public/report/{rep['token']}"))
+assert pub["rent"]["estimate"] == rep["rent"]["estimate"]
+ok(anon.post(f"/api/public/report/{rep['token']}/lead", json={"name": "Owner", "phone": "0821112222"}), 400)    # no consent ticked
+ok(anon.post(f"/api/public/report/{rep['token']}/lead", json={"name": "Owner", "phone": "0821112222", "consent": True}))
+assert _db0.val("SELECT status FROM prospects WHERE id=?", pr["id"]) == "interested"
+assert _db0.val("SELECT 1 FROM tasks WHERE title LIKE 'Owner wants to talk%' AND status='open'")
+own = ok(anon.post("/api/public/earn", json={"suburb": "Brooklyn", "city": "Pretoria", "bedrooms": 3, "bathrooms": 2, "size_m2": 200}))
+assert own["token"] and ok(anon.get("/api/public/pm/" + str(_db0.val("SELECT id FROM users WHERE email='thandi@ava.co.za'"))))["homes"] > 5
+# condition score adjusts the rent check (C1 +6% … C6 −12%)
+cp = _db0.q1("SELECT id FROM properties WHERE pm_id=(SELECT id FROM users WHERE email='thandi@ava.co.za') AND kind='rental' LIMIT 1")["id"]
+hi = ok(pm.post(f"/api/properties/{cp}/condition", json={"score": 1}))["price"]["estimate"]
+lo = ok(pm.post(f"/api/properties/{cp}/condition", json={"score": 6}))["price"]["estimate"]
+assert hi > lo and abs(hi / lo - 1.06 / 0.88) < 0.02, (hi, lo)
+insp_p = _db0.val("SELECT property_id FROM inspections WHERE status='final' LIMIT 1")
+assert ok(admin.post(f"/api/properties/{insp_p}/condition"))["score"] in range(1, 7)                       # from the last inspection
+# portals: only a ready, live listing goes out; the feed needs its key; let or off → withdrawn everywhere
+draft = _db0.val("SELECT id FROM properties WHERE listing_status!='live' AND kind='rental' AND pm_id=(SELECT id FROM users WHERE email='thandi@ava.co.za') LIMIT 1")
+ok(pm.post(f"/api/properties/{draft}/portals/property24", json={"on": True}), 400)
+lv = _db0.val("""SELECT p.id FROM properties p WHERE listing_status='live' AND kind='rental' AND pm_id=(SELECT id FROM users WHERE email='thandi@ava.co.za')
+                 AND NOT EXISTS (SELECT 1 FROM syndications s WHERE s.property_id=p.id AND s.portal='privateproperty') AND (SELECT COUNT(*) FROM media m WHERE m.property_id=p.id AND m.kind='photo')>=3 LIMIT 1""")
+st = ok(pm.post(f"/api/properties/{lv}/portals/privateproperty", json={"on": True}))
+assert next(x for x in st if x["portal"] == "privateproperty")["status"] == "live"
+ok(anon.get("/api/feeds/privateproperty.xml?key=x"), 403)
+ok(admin.put("/api/settings", json={"pp_agency_id": "AG123", "pp_feed_key": "feedkey"}))
+xml = ok(anon.get("/api/feeds/privateproperty.xml?key=feedkey")).text
+assert f'id="AVA{lv}"' in xml and "<price" in xml
+ok(pm.post(f"/api/properties/{lv}/unpublish"))
+assert all(x["status"] in ("withdrawn", "off") for x in ok(pm.get(f"/api/properties/{lv}/portals")))
+ld = ok(pm.get("/api/growth/leads"))
+assert ld, "portal enquiries in the leads inbox"
+assert ok(pm.put(f"/api/growth/leads/{ld[0]['id']}", json={"slot": "2030-01-10 10:00:00"}))["viewing_id"]
+assert ok(pm.get("/api/growth/syndication"))["portals"][0]["views"] > 0
+# campaigns: service only to clients; marketing only to people who opted in, with an unsubscribe that works
+ok(pm.post("/api/crm/preview", json={"kind": "service", "channel": "email", "audience": {"group": "prospects"}, "body": "x"}), 400)
+pv = ok(pm.post("/api/crm/preview", json={"kind": "marketing", "channel": "email", "audience": {"group": "tenants"}, "subject": "Hi", "body": "Hi {first_name} at {property}"}))
+assert pv["sending"] < pv["total"] and "No marketing consent (POPIA)" in pv["excluded"] and "{first_name}" not in pv["sample"]["body"] and "Unsubscribe" in pv["sample"]["body"]
+cm = ok(pm.post("/api/crm/campaigns", json={"kind": "marketing", "channel": "email", "audience": {"group": "tenants"}, "subject": "News", "body": "Hi {first_name}", "send": True}))
+assert cm["counts"]["sent"] == pv["sending"]
+ob = _db0.q1("SELECT * FROM outbox WHERE campaign_id=? AND status='sent' LIMIT 1", cm["id"])
+from server import crm as _crm  # noqa: E402
+ok(anon.get(f"/api/public/unsubscribe/{ob['id']}/bad"), 404)
+assert "unsubscribed" in ok(anon.get(f"/api/public/unsubscribe/{ob['id']}/{_crm.token(ob['id'])}")).text
+assert not _cp.has_consent("marketing", user_id=ob["user_id"])
+sv = ok(pm.post("/api/crm/campaigns", json={"kind": "service", "channel": "sms", "audience": {"group": "tenants", "suburb": "Brooklyn"}, "body": "Water off Thursday", "send": True}))
+assert sv["counts"]["sent"] >= 1 and sv["counts"]["excluded"] == 0
+assert _crm.greetings() == 0                                                     # today's greetings already went out once
+# FICA payout hold: an unverified owner's payout waits
+ok(admin.put("/api/settings", json={"fica_hold_payouts": True}))
+devco = _db0.val("SELECT id FROM users WHERE email='devco@example.co.za'")
+assert _cp.status(devco) != "verified"
+ok(admin.put("/api/settings", json={"fica_hold_payouts": False}))
+ok(t.get("/api/compliance"), 403); ok(t.get("/api/growth/prospects"), 403)
+print("✓ FICA (ID checksum, DHA, sanctions, duplicates, review), POPIA (consents, export, objection, deletion), prospecting + earnings reports, condition score, P24/PP syndication + feed + leads, campaigns with opt-out")
 print("ALL GOOD")

@@ -123,6 +123,22 @@ def tick(today=None):
                 if sv.task(None, None, "_sub", "", dedupe=key):
                     sv.notify(c["user_id"], "Your AVA listing expires soon" if days > 0 else "Your AVA listing has expired",
                               f"Renew for R{fees.S('contractor_listing_fee')}/month to keep receiving repair requests within {fees.S('quote_radius_km'):g} km.", "#/app", "subscription")
+    # growth & compliance: portals, greetings, identity checks waiting for a person, POPIA deadlines
+    from . import crm, syndicate
+    out["portal_withdrawn"] = syndicate.withdraw_stale()
+    out["portal_enquiries"] = syndicate.simulate_activity(t)
+    out["greetings"] = crm.greetings(t)
+    for k in db.q("""SELECT k.id, k.user_id, u.name, (SELECT p.pm_id FROM applications a JOIN properties p ON p.id=a.property_id WHERE a.user_id=k.user_id ORDER BY a.id DESC LIMIT 1) pm1,
+                     (SELECT p.pm_id FROM leases l JOIN properties p ON p.id=l.property_id WHERE l.tenant_id=k.user_id ORDER BY l.id DESC LIMIT 1) pm2,
+                     (SELECT p.pm_id FROM properties p WHERE p.landlord_id=k.user_id LIMIT 1) pm3
+                     FROM kyc_checks k JOIN users u ON u.id=k.user_id WHERE k.status='review'
+                     AND k.id=(SELECT MAX(id) FROM kyc_checks x WHERE x.user_id=k.user_id)"""):
+        sv.task(k["pm1"] or k["pm2"] or k["pm3"], None, "fica", f"FICA check needs a look: {k['name']}", "Some identity checks could not be confirmed automatically.",
+                f"#/app/compliance/kyc/{k['id']}", 1, t.isoformat(), f"kyc:{k['id']}")
+    for d in db.q("SELECT d.*, u.name FROM dsr d LEFT JOIN users u ON u.id=d.user_id WHERE d.status='open' AND d.due_date<=?", (t + timedelta(days=7)).isoformat()):
+        for a in db.q("SELECT id FROM users WHERE role='admin' AND active=1"):
+            if sv.task(None, None, "_dsr", "", dedupe=f"dsr:{d['id']}:{a['id']}"):
+                sv.notify(a["id"], "POPIA request due soon", f"{d['name'] or d['email']}: respond by {d['due_date']}", "#/app/compliance/popia", "privacy")
     # trust accounting: mirror today's money into the cashbooks, collect debit orders, pull the bank feeds
     trust.ensure_books()
     trust.sync()
