@@ -1895,7 +1895,19 @@ def notifications_read(u=Depends(user)):
 # =================================================================== admin & settings
 @r.get("/users")
 def users(u=Depends(role("admin"))):
-    return db.q("SELECT id, email, name, phone, role, company, active, verified, created_at FROM users ORDER BY role, name")
+    return db.q("""SELECT u.id, u.email, u.name, u.phone, u.role, u.company, u.active, u.verified, u.created_at,
+        (SELECT k.status FROM kyc_checks k WHERE k.user_id=u.id ORDER BY k.id DESC LIMIT 1) fica,
+        (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id=u.id) last_seen,
+        CASE u.role WHEN 'landlord' THEN (SELECT COUNT(*) FROM properties p WHERE p.landlord_id=u.id AND p.kind='rental')
+                    WHEN 'pm' THEN (SELECT COUNT(*) FROM properties p WHERE p.pm_id=u.id AND p.kind='rental')
+                    WHEN 'tenant' THEN (SELECT COUNT(*) FROM leases l WHERE l.tenant_id=u.id AND l.status='active') END homes,
+        COALESCE((SELECT p.pm_id FROM properties p WHERE p.landlord_id=u.id AND p.pm_id IS NOT NULL LIMIT 1),
+                 (SELECT p.pm_id FROM leases l JOIN properties p ON p.id=l.property_id WHERE l.tenant_id=u.id ORDER BY l.id DESC LIMIT 1),
+                 (SELECT p.pm_id FROM applications a JOIN properties p ON p.id=a.property_id WHERE a.user_id=u.id ORDER BY a.id DESC LIMIT 1)) pm_id,
+        COALESCE((SELECT p.city FROM properties p WHERE p.landlord_id=u.id OR p.pm_id=u.id GROUP BY p.city ORDER BY COUNT(*) DESC LIMIT 1),
+                 (SELECT p.city FROM leases l JOIN properties p ON p.id=l.property_id WHERE l.tenant_id=u.id ORDER BY l.id DESC LIMIT 1),
+                 (SELECT GROUP_CONCAT(value) FROM contractors c, json_each(c.areas) WHERE c.user_id=u.id)) city
+        FROM users u ORDER BY u.role, u.name""")
 
 
 @r.post("/users")

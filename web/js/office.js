@@ -624,11 +624,62 @@ route('/app/settings', async () => {
   });
 }, A);
 
-route('/app/users', async () => {
-  const pg = page('Users', { actions: `<button class="btn primary sm" id="addpm">${icon('plus')}Add portfolio manager</button>` });
+route('/app/users', async (_, q) => {
+  const pg = page('Users', { actions: `<button class="btn sm" id="csv">${icon('excel')}<span class="hide-sm">Export</span></button><button class="btn primary sm" id="addpm">${icon('plus')}Add portfolio manager</button>` });
   const rows = await api.get('/api/users');
-  pg.innerHTML = `<div class="card flush"><div class="tablewrap"><table class="t"><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th>Active</th></tr>${rows.map(u => `<tr><td><b>${esc(u.name)}</b><div class="tiny muted">${esc(u.company || '')}</div></td><td>${esc(u.email)}</td><td>${esc(u.role)}</td><td class="small">${fdate(u.created_at)}</td><td><label class="check"><input type="checkbox" data-u="${u.id}" ${u.active ? 'checked' : ''}></label></td></tr>`).join('')}</table></div></div>`;
-  $$('[data-u]').forEach(c => c.onchange = () => api.put('/api/users/' + c.dataset.u, { active: c.checked ? 1 : 0 }).then(() => toast('Updated')));
+  const pms = Object.fromEntries(rows.filter(u => u.role === 'pm').map(u => [u.id, u.name]));
+  const ROLE = { admin: 'Admin', pm: 'Portfolio manager', landlord: 'Owner', tenant: 'Tenant', contractor: 'Maintenance company' };
+  const FICA = { verified: 'Verified', review: 'Needs a look', failed: 'Failed', none: 'Not done' };
+  const f = { q: q.q || '', role: q.role || '', status: q.status || '', fica: q.fica || '', pm: q.pm || '', city: q.city || '', sort: q.sort || 'name' };
+  const cities = [...new Set(rows.flatMap(u => (u.city || '').split(',')).filter(Boolean))].sort();
+  const count = k => rows.filter(u => !k || u.role === k).length;
+  pg.innerHTML = `<div class="card stack tight">
+      <div class="seg" id="rl">${[['', 'All'], ...Object.entries(ROLE)].map(([k, l]) => `<button data-v="${k}" aria-pressed="${f.role === k}">${l} <span class="muted">${count(k)}</span></button>`).join('')}</div>
+      <div class="row wrap">
+        <input class="input" id="fq" type="search" placeholder="Search name, email, phone or company" value="${esc(f.q)}" style="flex:1;min-width:220px">
+        <select class="input" id="fs" style="max-width:150px"><option value="">Any status</option><option value="active">Active</option><option value="inactive">Switched off</option></select>
+        <select class="input" id="ff" style="max-width:170px"><option value="">Any FICA status</option>${Object.entries(FICA).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+        <select class="input" id="fp" style="max-width:200px"><option value="">Any portfolio manager</option>${Object.entries(pms).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}<option value="none">No PM</option></select>
+        <select class="input" id="fc" style="max-width:170px"><option value="">Any city</option>${cities.map(c => `<option>${esc(c)}</option>`).join('')}</select>
+        <select class="input" id="fo" style="max-width:160px"><option value="name">Sort: name</option><option value="new">Newest first</option><option value="seen">Last signed in</option><option value="homes">Most homes</option></select>
+        <button class="btn sm ghost" id="clr">Clear</button></div></div>
+    <div class="row"><span class="small muted grow" id="cnt"></span></div>
+    <div class="card flush"><div class="tablewrap"><table class="t"><thead><tr><th>Name</th><th>Email / phone</th><th>Role</th><th>Portfolio manager</th><th class="num">Homes</th><th>FICA</th><th>Joined</th><th>Last signed in</th><th>Active</th></tr></thead><tbody id="ub"></tbody></table></div></div>`;
+  [['#fs', 'status'], ['#ff', 'fica'], ['#fp', 'pm'], ['#fc', 'city'], ['#fo', 'sort']].forEach(([id, k]) => { $(id).value = f[k]; });
+  const list = () => {
+    const t = f.q.trim().toLowerCase();
+    let r = rows.filter(u => (!f.role || u.role === f.role)
+      && (!t || [u.name, u.email, u.phone, u.company].some(x => (x || '').toLowerCase().includes(t)))
+      && (!f.status || (f.status === 'active') === !!u.active)
+      && (!f.fica || (u.fica || 'none') === f.fica)
+      && (!f.pm || (f.pm === 'none' ? !u.pm_id && u.role !== 'pm' : String(u.pm_id) === f.pm || String(u.id) === f.pm))
+      && (!f.city || (u.city || '').split(',').includes(f.city)));
+    const by = { name: (a, b) => a.name.localeCompare(b.name), new: (a, b) => (b.created_at || '').localeCompare(a.created_at || ''),
+      seen: (a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''), homes: (a, b) => (b.homes || 0) - (a.homes || 0) };
+    return r.sort(by[f.sort] || by.name);
+  };
+  const draw = () => {
+    const r = list();
+    history.replaceState(null, '', '#/app/users?' + new URLSearchParams(Object.entries(f).filter(([k, v]) => v && !(k === 'sort' && v === 'name'))));
+    $('#cnt').textContent = `${r.length} of ${rows.length} users`;
+    $('#ub').innerHTML = r.map(u => `<tr><td><b>${esc(u.name)}</b><div class="tiny muted">${esc(u.company || '')}</div></td>
+      <td class="small">${esc(u.email)}<div class="tiny muted">${esc(u.phone || '')}</div></td><td>${ROLE[u.role] || esc(u.role)}</td>
+      <td class="small">${esc(pms[u.pm_id] || '')}</td><td class="num">${u.homes ?? ''}</td>
+      <td>${['tenant', 'landlord'].includes(u.role) ? `<span class="pill ${u.fica === 'verified' ? 'ok' : u.fica === 'failed' ? 'bad' : u.fica === 'review' ? 'warn' : ''}">${FICA[u.fica || 'none']}</span>` : ''}</td>
+      <td class="small">${fdate(u.created_at)}</td><td class="small">${u.last_seen ? ago(u.last_seen) : '<span class="muted">never</span>'}</td>
+      <td><label class="check"><input type="checkbox" data-u="${u.id}" ${u.active ? 'checked' : ''}></label></td></tr>`).join('') || '<tr><td colspan="9" class="muted">Nobody matches these filters.</td></tr>';
+    $$('[data-u]').forEach(c => c.onchange = () => api.put('/api/users/' + c.dataset.u, { active: c.checked ? 1 : 0 }).then(() => { rows.find(x => x.id == c.dataset.u).active = c.checked ? 1 : 0; toast('Updated'); }));
+  };
+  $$('#rl button').forEach(b => b.onclick = () => { $$('#rl button').forEach(x => x.setAttribute('aria-pressed', x === b)); f.role = b.dataset.v; draw(); });
+  $('#fq').oninput = e => { f.q = e.target.value; draw(); };
+  [['#fs', 'status'], ['#ff', 'fica'], ['#fp', 'pm'], ['#fc', 'city'], ['#fo', 'sort']].forEach(([id, k]) => $(id).onchange = e => { f[k] = e.target.value; draw(); });
+  $('#clr').onclick = () => go('#/app/users?r=' + Date.now());
+  $('#csv').onclick = () => {
+    const cols = ['name', 'email', 'phone', 'company', 'role', 'homes', 'fica', 'created_at', 'last_seen', 'active'];
+    const csv = [cols.join(','), ...list().map(u => cols.map(c => `"${String(c === 'fica' ? (u.fica || 'none') : u[c] ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'ava-users.csv'; a.click();
+  };
+  draw();
   $('#addpm').onclick = () => { const m = modal({ title: 'Add portfolio manager', body: `<form class="form" id="uf"><label class="field"><span>Name</span><input class="input" name="name" required></label><label class="field"><span>Email</span><input class="input" type="email" name="email" required></label><input type="hidden" name="role" value="pm"></form>`, foot: '<button class="btn primary" id="ok">Add</button>' });
     $('#ok', m).onclick = async () => { const r = await act($('#ok', m), () => api.post('/api/users', formObj($('#uf', m)))); m.close(); toast('Added – temporary password ' + r.temp_password); go('#/app/users?r=' + Date.now()); }; };
 }, A);
